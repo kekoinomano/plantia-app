@@ -1083,7 +1083,7 @@ var Sonora = (() => {
     (_, i) => Math.sin(i * TAU / SIZE)
   );
   var sin = (phase) => {
-    const x = (phase - Math.floor(phase)) * SIZE, i = Math.floor(x);
+    const x = (phase - Math.floor(phase)) * SIZE, i = x | 0;
     return sine[i] + (sine[i + 1] - sine[i]) * (x - i);
   };
   var smooth = (x) => {
@@ -1109,7 +1109,7 @@ var Sonora = (() => {
       );
     }
     tap(b, seconds) {
-      const x = (this.at - seconds * this.rate + b.length) % b.length, i = Math.floor(x);
+      const x = (this.at - seconds * this.rate + b.length) % b.length, i = x | 0;
       return b[i] + (b[(i + 1) % b.length] - b[i]) * (x - i);
     }
     process(l, r, p) {
@@ -1241,6 +1241,7 @@ var Sonora = (() => {
         detuneRatio: __pow(2, design.detune / 1200),
         design,
         frequency,
+        attenuation: Math.min(1, Math.sqrt(880 / frequency)),
         harmonics,
         ratios: desc.model === "bowl" ? [1, 2.71, 4.05, 5.43] : [1, 2, 3, 4],
         attack: isGreeting ? 0.14 : n.patch.envelope.on ? 4e-3 + (n.lane === "synth" ? 1.3 : 0.45) * __pow(n.patch.envelope.attack / 100, 2) : n.lane === "synth" ? 0.08 : 4e-3,
@@ -1274,7 +1275,7 @@ var Sonora = (() => {
       });
       const patches = [this.config.synth, this.config.instrument, greetPatch];
       for (let i = 0; i < l.length; i++, this.cursor++) {
-        const time = this.time;
+        const time = this.cursor / this.rate;
         while (at < this.pending.length && this.pending[at].time <= time) {
           const e = this.pending[at++];
           if (e.type === "note") {
@@ -1299,10 +1300,11 @@ var Sonora = (() => {
         for (let band = 0; band < 9; band++)
           this.expressionBands[band] += (this.targetExpression.bands[band] - this.expressionBands[band]) * expressionSlew;
         let sl = 0, sr = 0, il = 0, ir = 0, gl = 0, gr = 0;
+        const brightness = clamp(this.expression.brightness), energy = clamp(this.expression.energy);
         for (const v of this.voices) {
           const age = time - v.note.time;
           if (time > Math.min(v.stop + v.release, v.forced)) continue;
-          const envelope = smooth(age / v.attack) * (time < v.stop ? 1 : 1 - smooth((time - v.stop) / v.release)) * clamp((v.forced - time) / 0.025);
+          const envelope = (age < v.attack ? smooth(age / v.attack) : 1) * (time < v.stop ? 1 : 1 - smooth((time - v.stop) / v.release)) * (v.forced === Infinity ? 1 : clamp((v.forced - time) / 0.025));
           let value = 0;
           if (v.sample) {
             const p = Math.floor(v.position), a = v.sample.data;
@@ -1323,10 +1325,9 @@ var Sonora = (() => {
                 ) * (j ? 0.3 / (j + 1) : 1);
           } else {
             v.phase += v.frequency / this.rate;
-            v.phase -= Math.floor(v.phase);
+            v.phase -= v.phase | 0;
             v.phase2 += v.frequency * v.detuneRatio / this.rate;
-            v.phase2 -= Math.floor(v.phase2);
-            const brightness = clamp(this.expression.brightness), energy = clamp(this.expression.energy);
+            v.phase2 -= v.phase2 | 0;
             const design = v.design;
             const breathe = sin(age * design.evolution + v.note.color);
             const decay = 1 / (1 + age * design.decay);
@@ -1348,7 +1349,7 @@ var Sonora = (() => {
               const partial = sin(v.phase * (j + 1)) * (1 - design.blend) + sin(v.phase2 * (j + 1)) * design.blend;
               value += partial * v.harmonics[j] * weight;
             }
-            value *= (0.9 + energy * 0.14 + breathe * 0.05) * Math.min(1, Math.sqrt(880 / v.frequency));
+            value *= (0.9 + energy * 0.14 + breathe * 0.05) * v.attenuation;
           }
           if (v.note.lane === "greeting") {
             const bloom = sin(age * v.frequency) * 0.58 + sin(age * v.frequency * 2) * 0.16;

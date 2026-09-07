@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import Svg, { Defs, LinearGradient, Stop, Path, Line } from "react-native-svg";
 import Animated, {
@@ -8,17 +8,43 @@ import Animated, {
   Easing,
 } from "react-native-reanimated";
 import type { SignalPoint } from "@/lib/plant-session";
+import {
+  createSignalChartFrame,
+  formatSignalHistory,
+  SIGNAL_SAMPLE_COUNT,
+} from "@/lib/signal-chart";
 import { colors } from "./plantia-theme";
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 const WIDTH = 320,
   HEIGHT = 140,
-  COUNT = 120;
+  COUNT = SIGNAL_SAMPLE_COUNT;
+
+function clamp(value: number, low: number, high: number) {
+  "worklet";
+  return Math.max(low, Math.min(high, value));
+}
+
 function makePath(values: number[], progress: number, previous: number[]) {
   "worklet";
-  let d = "";
-  for (let i = 0; i < values.length; i++) {
-    const y = previous[i] + (values[i] - previous[i]) * progress;
-    d += `${i ? "L" : "M"}${((i * WIDTH) / (COUNT - 1)).toFixed(2)},${y.toFixed(2)} `;
+  if (!values.length) return "";
+  const y = values.map((value, i) => previous[i] + (value - previous[i]) * progress);
+  const step = WIDTH / Math.max(1, values.length - 1);
+  let d = `M0,${y[0].toFixed(2)} `;
+
+  // A bounded Catmull-Rom curve passes through every sample without ringing
+  // above or below sharp sensor changes.
+  for (let i = 0; i < y.length - 1; i++) {
+    const y0 = y[Math.max(0, i - 1)];
+    const y1 = y[i];
+    const y2 = y[i + 1];
+    const y3 = y[Math.min(y.length - 1, i + 2)];
+    const low = Math.min(y1, y2);
+    const high = Math.max(y1, y2);
+    const cp1y = clamp(y1 + ((y2 - y0) * 0.7) / 6, low, high);
+    const cp2y = clamp(y2 - ((y3 - y1) * 0.7) / 6, low, high);
+    d += `C${(i * step + step / 3).toFixed(2)},${cp1y.toFixed(2)} `;
+    d += `${((i + 1) * step - step / 3).toFixed(2)},${cp2y.toFixed(2)} `;
+    d += `${((i + 1) * step).toFixed(2)},${y2.toFixed(2)} `;
   }
   return d;
 }
@@ -34,28 +60,19 @@ export function SignalChart({
   const previous = useSharedValue(Array(COUNT).fill(HEIGHT / 2) as number[]);
   const next = useSharedValue(Array(COUNT).fill(HEIGHT / 2) as number[]);
   const progress = useSharedValue(1);
+  const frame = useMemo(() => createSignalChartFrame(points, HEIGHT), [points]);
   useEffect(() => {
-    if (!points.length) return;
-    const end = points[points.length - 1].time;
-    const min = Math.min(...points.map((p) => p.value)),
-      max = Math.max(...points.map((p) => p.value));
-    const padding = Math.max(2, (max - min) * 0.2),
-      low = min - padding,
-      range = max - min + padding * 2;
-    let cursor = 0;
-    const values = Array.from({ length: COUNT }, (_, i) => {
-      const time = end - 12000 + (i / (COUNT - 1)) * 12000;
-      while (cursor < points.length - 1 && points[cursor + 1].time <= time) cursor++;
-      if (time < points[0].time) return HEIGHT / 2;
-      return HEIGHT - ((points[cursor].value - low) / range) * HEIGHT;
-    });
+    if (!frame.values.length) return;
     previous.value = next.value.map(
       (v, i) => previous.value[i] + (v - previous.value[i]) * progress.value,
     );
-    next.value = values;
+    next.value = frame.values;
     progress.value = 0;
-    progress.value = withTiming(1, { duration: 100, easing: Easing.linear });
-  }, [points, next, previous, progress]);
+    progress.value = withTiming(1, {
+      duration: 360,
+      easing: Easing.bezier(0.22, 1, 0.36, 1),
+    });
+  }, [frame, next, previous, progress]);
   const lineProps = useAnimatedProps(() => ({
     d: makePath(next.value, progress.value, previous.value),
   }));
@@ -120,7 +137,7 @@ export function SignalChart({
         )}
       </View>
       <View style={styles.axis}>
-        <Text style={styles.axisText}>−12 s</Text>
+        <Text style={styles.axisText}>{formatSignalHistory(frame.historyMs)}</Text>
         <Text style={styles.axisText}>ahora</Text>
       </View>
     </View>

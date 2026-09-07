@@ -38,6 +38,8 @@ class PlantSession {
   private ble: PlantConnection | null = null;
   private generation = 0;
   private points: SignalPoint[] = [];
+  private graphRevision = 0;
+  private publishedGraphRevision = 0;
   private lastPacketAt = 0;
   private graphTimer: ReturnType<typeof setInterval> | null = null;
   private appSubscription: { remove(): void } | null = null;
@@ -66,9 +68,16 @@ class PlantSession {
       : performance.now() - this.lastPacketAt > 1500
         ? "gap"
         : "live";
+    const hasNewPoints = this.graphRevision !== this.publishedGraphRevision;
+    if (!hasNewPoints && signal === this.snapshot.signal) return;
+    if (hasNewPoints) this.publishedGraphRevision = this.graphRevision;
     this.update({
-      points: this.points.slice(),
-      lastValue: this.points.at(-1)?.value ?? null,
+      ...(hasNewPoints
+        ? {
+            points: this.points.slice(),
+            lastValue: this.points.at(-1)?.value ?? null,
+          }
+        : {}),
       signal,
     });
   };
@@ -83,6 +92,7 @@ class PlantSession {
       this.points.push({ value, time: packet.elapsed_ms - span + (span * (i + 1)) / 10 }),
     );
     this.points = this.points.filter((p) => p.time >= packet.elapsed_ms - 12000).slice(-600);
+    this.graphRevision++;
   };
 
   private scanTimer: ReturnType<typeof setTimeout> | null = null;
@@ -99,6 +109,7 @@ class PlantSession {
     }
     const generation = ++this.generation;
     this.points = [];
+    this.graphRevision++;
     this.lastPacketAt = 0;
     this.update({
       connection: "scanning",

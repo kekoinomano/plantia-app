@@ -1,50 +1,31 @@
 import { Platform } from "react-native";
-import {
-  AudioContext,
-  AudioManager,
-  PlaybackNotificationManager,
-  type WorkletSourceNode,
-} from "react-native-audio-api";
-import { createSynchronizable } from "react-native-worklets";
-import type { LiveMusicEngine } from "../plant-live-engine";
+import { AudioContext, AudioManager, PlaybackNotificationManager } from "react-native-audio-api";
 import type { PlantPacket } from "../plant-packet";
 import { sanitizeConfiguration, type Configuration } from "../sonora/presets";
+import { Composer, type Lane } from "../sonora/composer";
+import { createSignalAccumulator, GAP_SECONDS } from "../sonora/signal";
 import type { Bank } from "../sonora/dsp";
-import type { Lane } from "../sonora/composer";
 import { SampleBank } from "./bank";
-import { createSonoraEngine } from "./sonora-runtime";
+import { NativeSynth } from "./native-synth";
 
-type Settings = { revision: number; config: Configuration; bank: Bank };
-type RuntimeState = {
-  engine: LiveMusicEngine;
-  revision: number;
-  sequence: number;
-  audition: number;
-  reset: number;
-};
-type AudioGlobal = typeof globalThis & { plantiaSonora?: RuntimeState };
+type Settings = { config: Configuration; bank: Bank };
 
-/** PCM is pulled by the native audio clock, independently of React and JS timers. */
+/** BLE drives the existing composer; the native graph plays complete notes. */
 export class NativeAudio {
   private context: AudioContext | null = null;
-  private node: WorkletSourceNode | null = null;
+  private synth: NativeSynth | null = null;
+  private composer: Composer | null = null;
+  private signal: ReturnType<typeof createSignalAccumulator> | null = null;
   private bank = new SampleBank();
-  private settings = createSynchronizable<Settings | null>(null);
-  private packets = createSynchronizable<PlantPacket[]>([]);
-  private audition = createSynchronizable<{ id: number; lane: Lane }>({
-    id: 0,
-    lane: "instrument",
-  });
-  private reset = createSynchronizable(0);
-  private history: PlantPacket[] = [];
+  private currentSettings: Settings | null = null;
   private subscriptions: { remove(): void }[] = [];
-  private origin = 0;
-  private revision = 0;
+  private lastSequence = -1;
   private closed = false;
   private playing = false;
   private resumeAfterInterruption = false;
   private configureVersion = 0;
   private queue = Promise.resolve();
+  private starting: Promise<void> | null = null;
 
   constructor(
     private onPlaying: (playing: boolean) => void,
@@ -52,17 +33,26 @@ export class NativeAudio {
     private onStop: () => void,
   ) {}
 
-  async start(config: Configuration) {
+  start(config: Configuration) {
+    this.starting = this.begin(config);
+    return this.starting;
+  }
+
+  private async begin(config: Configuration) {
     AudioManager.setAudioSessionOptions({
       iosCategory: "playback",
       iosMode: "default",
       iosOptions: [],
     });
-    const context = new AudioContext({ sampleRate: 44100 });
+    // Use the hardware's preferred rate, including on Android. There is no
+    // downsampled JS renderer or resampled transport queue anymore.
+    const context = new AudioContext();
     this.context = context;
+    await context.suspend();
+    if (this.closed) return;
     await this.configure(config);
     if (this.closed) return;
-    // The notification starts Android's mediaPlayback foreground service.
+    // Starts the mediaPlayback | connectedDevice foreground service on Android.
     if (Platform.OS === "android") await AudioManager.requestNotificationPermissions();
     if (this.closed) return;
     await PlaybackNotificationManager.show({
@@ -73,65 +63,8 @@ export class NativeAudio {
     await PlaybackNotificationManager.enableControl("play", true);
     await PlaybackNotificationManager.enableControl("pause", true);
     await PlaybackNotificationManager.enableControl("stop", true);
-    if (this.closed) {
-      await PlaybackNotificationManager.hide();
-      return;
-    }
+    if (this.closed) return;
     AudioManager.observeAudioInterruptions(true);
-    await AudioManager.setAudioSessionActivity(true);
-    if (this.closed) return;
-    const settings = this.settings,
-      packets = this.packets,
-      audition = this.audition,
-      reset = this.reset;
-    const rate = context.sampleRate;
-    const origin = (this.origin = context.currentTime);
-    this.node = context.createWorkletSourceNode((channels, frames, currentTime) => {
-      "worklet";
-      const next = settings.getDirty();
-      if (!next || channels.length < 2) return;
-      const host = globalThis as AudioGlobal;
-      const resetId = reset.getDirty();
-      let state = host.plantiaSonora;
-      if (!state || state.reset !== resetId) {
-        state = host.plantiaSonora = {
-          engine: createSonoraEngine(
-            rate,
-            Math.max(0, currentTime - origin),
-            next.config,
-            next.bank,
-          ),
-          revision: next.revision,
-          sequence: -1,
-          audition: audition.getDirty().id,
-          reset: resetId,
-        };
-      }
-      if (state.revision !== next.revision) {
-        state.engine.configure(next.config, next.bank);
-        state.revision = next.revision;
-      }
-      for (const packet of packets.getDirty()) {
-        if (packet.seq <= state.sequence) continue;
-        state.sequence = packet.seq;
-        // Do not replay queued notifications after an interruption/suspension.
-        if (packet.elapsed_ms / 1000 >= currentTime - origin - 1.5) state.engine.push(packet);
-      }
-      const preview = audition.getDirty();
-      if (preview.id !== state.audition) {
-        state.audition = preview.id;
-        state.engine.audition(preview.lane);
-      }
-      const left = channels[0].length === frames ? channels[0] : channels[0].subarray(0, frames);
-      const right = channels[1].length === frames ? channels[1] : channels[1].subarray(0, frames);
-      state.engine.render(left, right);
-    }, "AudioRuntime");
-    this.node.connect(context.destination);
-    this.node.start();
-    await context.resume();
-    if (this.closed) return;
-    this.playing = true;
-    this.onPlaying(true);
     this.subscriptions = [
       PlaybackNotificationManager.addEventListener("playbackNotificationPlay", () => {
         void this.setPlaying(true).catch(this.onError);
@@ -155,57 +88,101 @@ export class NativeAudio {
         }
       }),
     ].filter((s) => s != null);
+    await AudioManager.setAudioSessionActivity(true);
+    if (this.closed) return;
+    await context.resume();
+    if (this.closed) return;
+    this.playing = true;
+    this.onPlaying(true);
+  }
+
+  private resetComposition() {
+    if (!this.currentSettings) return;
+    this.composer = new Composer(this.currentSettings.config);
+    this.lastSequence = -1;
+    this.signal = createSignalAccumulator((frame) => {
+      if (!this.context || !this.composer || this.context.currentTime - frame.time > GAP_SECONDS) return;
+      this.composer.advance(frame.time);
+      this.composer.push(frame);
+      this.synth?.events(this.composer.drain());
+    });
   }
 
   async configure(input: Configuration) {
     const version = ++this.configureVersion;
     const config = sanitizeConfiguration(input);
     if (!this.context || this.closed) return;
-    const current = this.settings.getBlocking();
-    const bank =
-      current?.config.instrument.preset === config.instrument.preset
-        ? current.bank
-        : await this.bank.load(config, this.context);
+    const current = this.currentSettings;
+    const bank = current?.config.instrument.preset === config.instrument.preset
+      ? current.bank : await this.bank.load(config, this.context);
     if (this.closed || version !== this.configureVersion) return;
-    this.settings.setBlocking({ config, bank, revision: ++this.revision });
+    this.currentSettings = { config, bank };
+    if (!this.synth) {
+      this.synth = new NativeSynth(this.context, config, bank);
+      this.resetComposition();
+    } else {
+      this.composer?.configure(config, this.context.currentTime);
+      this.synth.events(this.composer?.drain() ?? []);
+      this.synth.configure(config, bank);
+    }
   }
 
   push(packet: PlantPacket) {
     if (!this.context || !this.playing || this.closed) return;
-    this.history.push({
-      ...packet,
-      elapsed_ms: Math.max(0, this.context.currentTime - this.origin) * 1000,
-    });
-    this.history = this.history.slice(-16);
-    // Copy before handing it to the audio thread: that object gets sealed.
-    this.packets.setBlocking([...this.history]);
+    if (packet.error || !packet.values || packet.values.length !== 10 ||
+      !packet.values.every(Number.isFinite) || !Number.isSafeInteger(packet.seq) ||
+      packet.seq <= this.lastSequence) return;
+    this.lastSequence = packet.seq;
+    const now = this.context.currentTime;
+    try {
+      this.synth?.activity(now + GAP_SECONDS);
+      // Audio and analysis share the native clock; screen refresh and JS timers
+      // do not drive playback. Invalid/missing data lets the native fade finish.
+      this.signal?.push({ ...packet, elapsed_ms: now * 1000 });
+    } catch (error) {
+      void this.setPlaying(false).catch(this.onError);
+      this.onError(error);
+    }
   }
 
   preview(lane: Lane) {
-    if (!this.playing) return;
-    this.audition.setBlocking({ id: this.audition.getBlocking().id + 1, lane });
+    if (!this.context || !this.playing || this.closed || !this.composer) return;
+    try {
+      const now = this.context.currentTime;
+      this.composer.audition(lane, now);
+      const events = this.composer.drain();
+      const end = Math.max(now, ...events.map((e) => e.type === "note" ? e.time + e.note.duration + 3.6 : e.time));
+      this.synth?.activity(end + 0.05);
+      this.synth?.events(events);
+    } catch (error) {
+      this.onError(error);
+    }
   }
 
   setPlaying(value: boolean, interruption = false): Promise<void> {
     if (!interruption) this.resumeAfterInterruption = false;
-    const operation = this.queue
-      .catch(() => {})
-      .then(async () => {
-        if (!this.context || this.closed || this.playing === value) return;
-        if (value) {
-          this.history = [];
-          this.packets.setBlocking([]);
-          this.reset.setBlocking(this.reset.getBlocking() + 1);
-          await AudioManager.setAudioSessionActivity(true);
-          await this.context.resume();
-        } else {
-          await this.context.suspend();
-        }
+    const operation = this.queue.catch(() => {}).then(async () => {
+      if (!this.context || this.closed || this.playing === value) return;
+      if (value) {
+        this.resetComposition();
+        await AudioManager.setAudioSessionActivity(true);
         if (this.closed) return;
-        this.playing = value;
-        this.onPlaying(value);
-        await PlaybackNotificationManager.show({ state: value ? "playing" : "paused" });
-      });
+        await this.context.resume();
+      } else {
+        this.playing = false;
+        this.onPlaying(false);
+        this.synth?.silence();
+        // Only transport pause/stop waits for a short fade, never audio refill.
+        if (!interruption) await new Promise((resolve) => setTimeout(resolve, 40));
+        if (this.closed) return;
+        await this.context.suspend();
+        this.synth?.reset();
+      }
+      if (this.closed) return;
+      this.playing = value;
+      this.onPlaying(value);
+      await PlaybackNotificationManager.show({ state: value ? "playing" : "paused" });
+    });
     this.queue = operation;
     return operation;
   }
@@ -214,17 +191,22 @@ export class NativeAudio {
     if (this.closed) return;
     this.closed = true;
     this.configureVersion++;
+    await this.starting?.catch(() => {});
     this.subscriptions.forEach((s) => s.remove());
     this.subscriptions = [];
     await this.queue.catch(() => {});
-    this.node?.stop();
-    this.node?.disconnect();
+    if (this.playing) {
+      this.synth?.silence();
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+    this.synth?.close();
     await this.context?.close();
     this.context = null;
-    this.node = null;
-    this.history = [];
-    this.settings.setBlocking(null);
-    this.packets.setBlocking([]);
+    this.synth = null;
+    this.composer = null;
+    this.signal = null;
+    this.currentSettings = null;
+    this.bank = new SampleBank();
     this.playing = false;
     this.onPlaying(false);
     AudioManager.observeAudioInterruptions(false);

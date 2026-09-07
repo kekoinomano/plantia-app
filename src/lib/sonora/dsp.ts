@@ -21,7 +21,7 @@ const sine = Float32Array.from({ length: SIZE + 1 }, (_, i) =>
 );
 const sin = (phase: number) => {
   const x = (phase - Math.floor(phase)) * SIZE,
-    i = Math.floor(x);
+    i = x | 0; // Nonnegative table index; avoids a native Math call per partial.
   return sine[i] + (sine[i + 1] - sine[i]) * (x - i);
 };
 const smooth = (x: number) => {
@@ -47,7 +47,7 @@ class Effects {
   }
   private tap(b: Float32Array, seconds: number) {
     const x = (this.at - seconds * this.rate + b.length) % b.length,
-      i = Math.floor(x);
+      i = x | 0;
     return b[i] + (b[(i + 1) % b.length] - b[i]) * (x - i);
   }
   process(l: number, r: number, p: Patch): [number, number] {
@@ -123,6 +123,7 @@ type Voice = {
   detuneRatio: number;
   design: SynthVoice;
   frequency: number;
+  attenuation: number;
   harmonics: number[];
   ratios: number[];
   attack: number;
@@ -239,6 +240,7 @@ export class AudioCore {
       detuneRatio: 2 ** (design.detune / 1200),
       design,
       frequency,
+      attenuation: Math.min(1, Math.sqrt(880 / frequency)),
       harmonics,
       ratios: desc.model === 'bowl' ? [1, 2.71, 4.05, 5.43] : [1, 2, 3, 4],
       attack: isGreeting
@@ -290,7 +292,7 @@ export class AudioCore {
     };
     const patches = [this.config.synth, this.config.instrument, greetPatch];
     for (let i = 0; i < l.length; i++, this.cursor++) {
-      const time = this.time;
+      const time = this.cursor / this.rate;
       while (at < this.pending.length && this.pending[at].time <= time) {
         const e = this.pending[at++];
         if (e.type === 'note') {
@@ -332,13 +334,15 @@ export class AudioCore {
         ir = 0,
         gl = 0,
         gr = 0;
+      const brightness = clamp(this.expression.brightness),
+        energy = clamp(this.expression.energy);
       for (const v of this.voices) {
         const age = time - v.note.time;
         if (time > Math.min(v.stop + v.release, v.forced)) continue;
         const envelope =
-          smooth(age / v.attack) *
+          (age < v.attack ? smooth(age / v.attack) : 1) *
           (time < v.stop ? 1 : 1 - smooth((time - v.stop) / v.release)) *
-          clamp((v.forced - time) / 0.025);
+          (v.forced === Infinity ? 1 : clamp((v.forced - time) / 0.025));
         let value = 0;
         if (v.sample) {
           const p = Math.floor(v.position),
@@ -367,11 +371,9 @@ export class AudioCore {
                 (j ? 0.3 / (j + 1) : 1);
         } else {
           v.phase += v.frequency / this.rate;
-          v.phase -= Math.floor(v.phase);
+          v.phase -= v.phase | 0;
           v.phase2 += (v.frequency * v.detuneRatio) / this.rate;
-          v.phase2 -= Math.floor(v.phase2);
-          const brightness = clamp(this.expression.brightness),
-            energy = clamp(this.expression.energy);
+          v.phase2 -= v.phase2 | 0;
           const design = v.design;
           const breathe = sin(age * design.evolution + v.note.color);
           const decay = 1 / (1 + age * design.decay);
@@ -402,7 +404,7 @@ export class AudioCore {
           }
           value *=
             (0.9 + energy * 0.14 + breathe * 0.05) *
-            Math.min(1, Math.sqrt(880 / v.frequency));
+            v.attenuation;
         }
         if (v.note.lane === 'greeting') {
           const bloom =

@@ -46,6 +46,7 @@
           "bluetoothAlwaysPermission": "Plantia utiliza Bluetooth para escuchar la señal de tu planta, también con la pantalla apagada."
         }
       ],
+      "./plugins/with-background-playback",
       [
         "react-native-audio-api",
         {

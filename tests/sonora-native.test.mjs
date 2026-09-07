@@ -6,6 +6,44 @@ import { transformFileSync } from "@babel/core";
 import { LiveMusicEngine } from "../src/lib/plant-live-engine.ts";
 import { defaultConfiguration } from "../src/lib/sonora/presets.ts";
 import { decodePlantPacket } from "../src/lib/plant-packet.ts";
+import {
+  createSignalChartFrame,
+  formatSignalHistory,
+  SIGNAL_SAMPLE_COUNT,
+} from "../src/lib/signal-chart.ts";
+
+test("la gráfica ocupa todo el ancho desde el primer paquete y conserva una ventana de 12 s", () => {
+  const firstPacket = Array.from({ length: 10 }, (_, i) => ({
+    time: i * 20,
+    value: 100 + i * 10,
+  }));
+  const initial = createSignalChartFrame(firstPacket, 140);
+  assert.equal(initial.values.length, SIGNAL_SAMPLE_COUNT);
+  assert.equal(initial.historyMs, 180);
+  assert.equal(formatSignalHistory(initial.historyMs), "−0,2 s");
+  assert.ok(initial.values[0] > initial.values.at(-1));
+
+  const longHistory = Array.from({ length: 14 }, (_, i) => ({
+    time: i * 1000,
+    value: i,
+  }));
+  const windowed = createSignalChartFrame(longHistory, 140);
+  assert.equal(windowed.historyMs, 12000);
+  assert.equal(formatSignalHistory(windowed.historyMs), "−12 s");
+});
+
+test("la gráfica interpola entre valores en vez de dibujar escalones", () => {
+  const frame = createSignalChartFrame(
+    [
+      { time: 0, value: 0 },
+      { time: 1000, value: 100 },
+    ],
+    140,
+    3,
+  );
+  assert.ok(frame.values[0] > frame.values[1]);
+  assert.ok(frame.values[1] > frame.values[2]);
+});
 
 test("BLE conserva los diez valores y rechaza paquetes corruptos", () => {
   const values = [20000, 20001, 19998, 20004, 20007, 20006, 19990, 19993, 20002, 20005];
