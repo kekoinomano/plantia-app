@@ -1,0 +1,5 @@
+FluidR3 GM sound samples, Frank Wen and contributors. Pre-rendered notes from MIDI.js Soundfonts by Benjamin Gleitzman and contributors.
+Source: https://github.com/gleitz/midi-js-soundfonts/tree/gh-pages/FluidR3_GM
+License: Creative Commons Attribution 3.0 Unported, https://creativecommons.org/licenses/by/3.0/
+Modifications: selected C2–C6 samples; decoded, trimmed and normalized at load time. No endorsement implied.
+Hang Drum uses steel-drum samples as an approximation. Koshi and Tibetan Bell are procedural models, not recordings of those instruments.

@@ -1,0 +1,385 @@
+{
+  "version": 1,
+  "source": "https://github.com/gleitz/midi-js-soundfonts",
+  "license": "CC-BY-3.0",
+  "programs": {
+    "pan_flute": [
+      {
+        "midi": 36,
+        "file": "pan_flute-C2.mp3",
+        "bytes": 24753
+      },
+      {
+        "midi": 48,
+        "file": "pan_flute-C3.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 60,
+        "file": "pan_flute-C4.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 72,
+        "file": "pan_flute-C5.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 84,
+        "file": "pan_flute-C6.mp3",
+        "bytes": 25585
+      }
+    ],
+    "steel_drums": [
+      {
+        "midi": 36,
+        "file": "steel_drums-C2.mp3",
+        "bytes": 16459
+      },
+      {
+        "midi": 48,
+        "file": "steel_drums-C3.mp3",
+        "bytes": 15731
+      },
+      {
+        "midi": 60,
+        "file": "steel_drums-C4.mp3",
+        "bytes": 15393
+      },
+      {
+        "midi": 72,
+        "file": "steel_drums-C5.mp3",
+        "bytes": 14821
+      },
+      {
+        "midi": 84,
+        "file": "steel_drums-C6.mp3",
+        "bytes": 13937
+      }
+    ],
+    "church_organ": [
+      {
+        "midi": 36,
+        "file": "church_organ-C2.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 48,
+        "file": "church_organ-C3.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 60,
+        "file": "church_organ-C4.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 72,
+        "file": "church_organ-C5.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 84,
+        "file": "church_organ-C6.mp3",
+        "bytes": 25585
+      }
+    ],
+    "acoustic_grand_piano": [
+      {
+        "midi": 36,
+        "file": "acoustic_grand_piano-C2.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 48,
+        "file": "acoustic_grand_piano-C3.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 60,
+        "file": "acoustic_grand_piano-C4.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 72,
+        "file": "acoustic_grand_piano-C5.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 84,
+        "file": "acoustic_grand_piano-C6.mp3",
+        "bytes": 19371
+      }
+    ],
+    "oboe": [
+      {
+        "midi": 36,
+        "file": "oboe-C2.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 48,
+        "file": "oboe-C3.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 60,
+        "file": "oboe-C4.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 72,
+        "file": "oboe-C5.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 84,
+        "file": "oboe-C6.mp3",
+        "bytes": 25585
+      }
+    ],
+    "marimba": [
+      {
+        "midi": 36,
+        "file": "marimba-C2.mp3",
+        "bytes": 14379
+      },
+      {
+        "midi": 48,
+        "file": "marimba-C3.mp3",
+        "bytes": 14457
+      },
+      {
+        "midi": 60,
+        "file": "marimba-C4.mp3",
+        "bytes": 14769
+      },
+      {
+        "midi": 72,
+        "file": "marimba-C5.mp3",
+        "bytes": 14743
+      },
+      {
+        "midi": 84,
+        "file": "marimba-C6.mp3",
+        "bytes": 14353
+      }
+    ],
+    "xylophone": [
+      {
+        "midi": 36,
+        "file": "xylophone-C2.mp3",
+        "bytes": 14249
+      },
+      {
+        "midi": 48,
+        "file": "xylophone-C3.mp3",
+        "bytes": 14431
+      },
+      {
+        "midi": 60,
+        "file": "xylophone-C4.mp3",
+        "bytes": 14353
+      },
+      {
+        "midi": 72,
+        "file": "xylophone-C5.mp3",
+        "bytes": 14093
+      },
+      {
+        "midi": 84,
+        "file": "xylophone-C6.mp3",
+        "bytes": 13859
+      }
+    ],
+    "sitar": [
+      {
+        "midi": 36,
+        "file": "sitar-C2.mp3",
+        "bytes": 25351
+      },
+      {
+        "midi": 48,
+        "file": "sitar-C3.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 60,
+        "file": "sitar-C4.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 72,
+        "file": "sitar-C5.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 84,
+        "file": "sitar-C6.mp3",
+        "bytes": 24987
+      }
+    ],
+    "choir_aahs": [
+      {
+        "midi": 36,
+        "file": "choir_aahs-C2.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 48,
+        "file": "choir_aahs-C3.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 60,
+        "file": "choir_aahs-C4.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 72,
+        "file": "choir_aahs-C5.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 84,
+        "file": "choir_aahs-C6.mp3",
+        "bytes": 25585
+      }
+    ],
+    "tubular_bells": [
+      {
+        "midi": 36,
+        "file": "tubular_bells-C2.mp3",
+        "bytes": 18071
+      },
+      {
+        "midi": 48,
+        "file": "tubular_bells-C3.mp3",
+        "bytes": 18721
+      },
+      {
+        "midi": 60,
+        "file": "tubular_bells-C4.mp3",
+        "bytes": 18331
+      },
+      {
+        "midi": 72,
+        "file": "tubular_bells-C5.mp3",
+        "bytes": 17941
+      },
+      {
+        "midi": 84,
+        "file": "tubular_bells-C6.mp3",
+        "bytes": 16329
+      }
+    ],
+    "brass_section": [
+      {
+        "midi": 36,
+        "file": "brass_section-C2.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 48,
+        "file": "brass_section-C3.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 60,
+        "file": "brass_section-C4.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 72,
+        "file": "brass_section-C5.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 84,
+        "file": "brass_section-C6.mp3",
+        "bytes": 25585
+      }
+    ],
+    "string_ensemble_1": [
+      {
+        "midi": 36,
+        "file": "string_ensemble_1-C2.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 48,
+        "file": "string_ensemble_1-C3.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 60,
+        "file": "string_ensemble_1-C4.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 72,
+        "file": "string_ensemble_1-C5.mp3",
+        "bytes": 25585
+      },
+      {
+        "midi": 84,
+        "file": "string_ensemble_1-C6.mp3",
+        "bytes": 25585
+      }
+    ],
+    "acoustic_guitar_nylon": [
+      {
+        "midi": 36,
+        "file": "acoustic_guitar_nylon-C2.mp3",
+        "bytes": 15237
+      },
+      {
+        "midi": 48,
+        "file": "acoustic_guitar_nylon-C3.mp3",
+        "bytes": 16095
+      },
+      {
+        "midi": 60,
+        "file": "acoustic_guitar_nylon-C4.mp3",
+        "bytes": 15809
+      },
+      {
+        "midi": 72,
+        "file": "acoustic_guitar_nylon-C5.mp3",
+        "bytes": 18331
+      },
+      {
+        "midi": 84,
+        "file": "acoustic_guitar_nylon-C6.mp3",
+        "bytes": 14847
+      }
+    ],
+    "orchestral_harp": [
+      {
+        "midi": 36,
+        "file": "orchestral_harp-C2.mp3",
+        "bytes": 18227
+      },
+      {
+        "midi": 48,
+        "file": "orchestral_harp-C3.mp3",
+        "bytes": 17239
+      },
+      {
+        "midi": 60,
+        "file": "orchestral_harp-C4.mp3",
+        "bytes": 16953
+      },
+      {
+        "midi": 72,
+        "file": "orchestral_harp-C5.mp3",
+        "bytes": 16667
+      },
+      {
+        "midi": 84,
+        "file": "orchestral_harp-C6.mp3",
+        "bytes": 15133
+      }
+    ]
+  }
+}
