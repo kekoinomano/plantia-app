@@ -17,3 +17,7 @@ android {
   }
   externalNativeBuild { cmake { path 'CMakeLists.txt' } }
 }
+
+dependencies {
+  implementation 'com.facebook.react:react-android'
+}

@@ -84,7 +84,7 @@ test('PCM precarga antes de start y conserva exactamente Sonora y los intervalos
   await h.until(() => h.synth.diagnostics.blocks >= 50);
   assert.equal(h.errors.length, 0);
   assert.equal(h.sources.length, 1);
-  assert.ok(h.sources[0].preload >= 0.12);
+  assert.ok(h.sources[0].preload >= 1.2);
   assert.equal(h.sources[0].offset, 0);
   const core = new AudioCore(48000, h.config, {});
   core.schedule(relative(events, 10));
@@ -155,11 +155,11 @@ test('PCM un callback viejo no reactiva una cola cancelada', async () => {
 test('PCM se recupera de una cola vacía con nueva precarga, sin reutilizar audio atrasado', async () => {
   const h = harness(); h.synth.events(audition(h.config));
   await h.until(() => h.sources[0]?.startAt != null);
-  h.jump(0.8);
+  h.jump(3);
   await h.until(() => h.sources.length === 2 && h.sources[1].startAt != null);
   assert.equal(h.synth.diagnostics.underruns, 1);
   assert.equal(h.sources[0].stopped, true);
-  assert.ok(h.sources[1].preload >= 0.12);
+  assert.ok(h.sources[1].preload >= 1.2);
   assert.equal(h.errors.length, 0);
   h.synth.close();
 });
@@ -172,5 +172,22 @@ test('PCM propaga errores asíncronos y deja el transporte detenido', async () =
   assert.match(h.errors[0].message, /allocation failed/);
   assert.equal(h.synth.diagnostics.active, false);
   assert.equal(h.timers.size, 0);
+  h.synth.close();
+});
+
+
+test('PCM mantiene audio durante un bloqueo de interfaz de un segundo', async () => {
+  const h = harness();
+  h.synth.events(audition(h.config));
+  await h.until(() => h.sources[0]?.startAt != null);
+  assert.ok(h.synth.diagnostics.queuedSeconds >= 1.2);
+  const source = h.sources[0];
+  h.jump(1);
+  assert.ok(h.synth.diagnostics.queuedSeconds > 0, 'La cola nativa sigue teniendo audio mientras JS está ocupado');
+  await h.until(() => h.synth.diagnostics.queuedSeconds >= 1.2);
+  assert.equal(h.sources.length, 1, 'No se reinicia el transporte al cerrar el menú');
+  assert.equal(h.sources[0], source);
+  assert.equal(h.synth.diagnostics.underruns, 0);
+  assert.equal(h.errors.length, 0);
   h.synth.close();
 });

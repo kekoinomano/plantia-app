@@ -1,59 +1,59 @@
 export const SIGNAL_WINDOW_MS = 12_000;
-export const SIGNAL_SAMPLE_COUNT = 120;
+export const SIGNAL_DELAY_MS = 400;
+export const SIGNAL_GAP_MS = 600;
+export type ChartPoint = { time: number; value: number };
 
-type ChartPoint = { time: number; value: number };
-
-export type SignalChartFrame = {
-  historyMs: number;
-  values: number[];
-};
-
-/**
- * Resample the real amount of history we have across the whole chart. Once the
- * session reaches SIGNAL_WINDOW_MS this naturally becomes a moving window.
- */
-export function createSignalChartFrame(
-  points: ChartPoint[],
-  height: number,
-  count = SIGNAL_SAMPLE_COUNT,
-): SignalChartFrame {
-  if (!points.length || count <= 0) return { historyMs: 0, values: [] };
-
-  const end = points[points.length - 1].time;
-  const start = Math.max(points[0].time, end - SIGNAL_WINDOW_MS);
-  const historyMs = Math.max(0, end - start);
-  const raw = Array<number>(count);
-  let cursor = 0;
-
-  for (let i = 0; i < count; i++) {
-    const time = historyMs === 0 ? end : start + (i / Math.max(1, count - 1)) * historyMs;
-    while (cursor < points.length - 2 && points[cursor + 1].time < time) cursor++;
-
-    const left = points[cursor];
-    const right = points[Math.min(cursor + 1, points.length - 1)];
-    const span = right.time - left.time;
-    const progress = span > 0 ? Math.max(0, Math.min(1, (time - left.time) / span)) : 0;
-    raw[i] = left.value + (right.value - left.value) * progress;
+/** A sample keeps its time and amplitude; only the viewport moves. */
+export function signalPath(
+  points: ChartPoint[], end: number, height: number, low: number, high: number, width = 320,
+) {
+  "worklet";
+  const start = end - SIGNAL_WINDOW_MS;
+  const x = (time: number) => ((time - start) / SIGNAL_WINDOW_MS) * width;
+  const y = (value: number) => height - 10 - ((value - low) / Math.max(1, high - low)) * (height - 20);
+  let path = "";
+  let drawing = false;
+  for (let i = 0; i < points.length; i++) {
+    const point = points[i];
+    const previous = points[i - 1];
+    if (point.time < start) continue;
+    if (point.time > end) {
+      if (drawing && previous && point.time - previous.time <= SIGNAL_GAP_MS) {
+        const value = previous.value + (point.value - previous.value) * (end - previous.time) / (point.time - previous.time);
+        path += `L${width},${y(value).toFixed(2)}`;
+      }
+      break;
+    }
+    if (!drawing && previous && previous.time < start && point.time - previous.time <= SIGNAL_GAP_MS) {
+      const value = previous.value + (point.value - previous.value) * (start - previous.time) / (point.time - previous.time);
+      path += `M0,${y(value).toFixed(2)}`;
+      drawing = true;
+    }
+    const move = !drawing || (previous && point.time - previous.time > SIGNAL_GAP_MS);
+    path += `${move ? "M" : "L"}${x(point.time).toFixed(2)},${y(point.value).toFixed(2)}`;
+    drawing = true;
   }
-
-  const min = Math.min(...raw);
-  const max = Math.max(...raw);
-  const spread = max - min;
-  if (spread < Number.EPSILON) {
-    return { historyMs, values: raw.map(() => height / 2) };
-  }
-
-  const padding = Math.max(2, spread * 0.18);
-  const low = min - padding;
-  const range = spread + padding * 2;
-  return {
-    historyMs,
-    values: raw.map((value) => height - ((value - low) / range) * height),
-  };
+  return path;
 }
 
-export function formatSignalHistory(historyMs: number) {
-  if (historyMs >= SIGNAL_WINDOW_MS - 50) return "−12 s";
-  const seconds = Math.max(0.1, historyMs / 1000);
-  return `−${seconds < 1 ? seconds.toFixed(1) : Math.round(seconds)} s`.replace(".", ",");
+export function signalBounds(points: ChartPoint[]) {
+  const values = points.map((point) => point.value);
+  const min = Math.min(...values), max = Math.max(...values);
+  const padding = Math.max(10, (max - min) * 0.25);
+  return { low: min - padding, high: max + padding };
+}
+
+
+export function signalCursor(points: ChartPoint[], end: number) {
+  "worklet";
+  for (let i = points.length - 1; i >= 0; i--) {
+    const point = points[i];
+    if (point.time > end) continue;
+    const next = points[i + 1];
+    if (next && next.time - point.time <= SIGNAL_GAP_MS) {
+      return { time: end, value: point.value + (next.value - point.value) * (end - point.time) / (next.time - point.time) };
+    }
+    return end - point.time <= SIGNAL_GAP_MS ? point : null;
+  }
+  return null;
 }

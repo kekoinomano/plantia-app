@@ -1,7 +1,7 @@
 import { AppState, Platform } from "react-native";
 import { isRunningInExpoGo } from "expo";
 import { useSyncExternalStore } from "react";
-import { defaultConfiguration, sanitizeConfiguration, type Configuration } from "./sonora/presets";
+import { copyPatch, defaultConfiguration, sanitizeConfiguration, type Patch, type Configuration } from "./sonora/presets";
 import type { PlantPacket } from "./plant-packet";
 import type { DiscoveredDevice, PlantConnection } from "./plant-connection";
 import type { Lane } from "./sonora/composer";
@@ -75,23 +75,46 @@ class PlantSession {
       ...(hasNewPoints
         ? {
             points: this.points.slice(),
-            lastValue: this.points.at(-1)?.value ?? null,
+            lastValue: this.graphLastValue,
           }
         : {}),
       signal,
     });
   };
+  private graphBucket = -1;
+  private graphSum = 0;
+  private graphCount = 0;
+  private graphLastSampleAt = 0;
+  private graphLastValue: number | null = null;
   private receive = (packet: PlantPacket) => {
     this.audio?.push(packet);
     if (!packet.values) return;
     this.lastPacketAt = performance.now();
-    // Draw every raw value, keeping just the last ~12 seconds (600 samples).
-    const previous = this.points.at(-1)?.time ?? Math.max(0, packet.elapsed_ms - 200);
-    const span = Math.min(500, Math.max(20, packet.elapsed_ms - previous));
-    packet.values.forEach((value, i) =>
-      this.points.push({ value, time: packet.elapsed_ms - span + (span * (i + 1)) / 10 }),
-    );
-    this.points = this.points.filter((p) => p.time >= packet.elapsed_ms - 12000).slice(-600);
+    // Only the display is reduced: Sonora still receives every original packet.
+    // One averaged point per 50 ms preserves five seconds even during BLE bursts.
+    const previous = this.graphLastSampleAt || this.lastPacketAt - 200;
+    const span = Math.min(500, Math.max(0, this.lastPacketAt - previous));
+    packet.values.forEach((value, i) => {
+      const time = this.lastPacketAt - span + span * (i + 1) / packet.values!.length;
+      const bucket = Math.floor(time / 50);
+      if (bucket !== this.graphBucket) {
+        this.graphBucket = bucket;
+        this.graphSum = 0;
+        this.graphCount = 0;
+        this.points.push({ time, value });
+      }
+      this.graphSum += value;
+      this.graphCount++;
+      // Replace rather than mutate points already published to React.
+      this.points[this.points.length - 1] = {
+        time: bucket * 50,
+        value: this.graphSum / this.graphCount,
+      };
+    });
+    this.graphLastSampleAt = this.lastPacketAt;
+    this.graphLastValue = packet.values[packet.values.length - 1];
+    while (this.points.length && this.points[0].time < this.lastPacketAt - 6000)
+      this.points.shift();
     this.graphRevision++;
   };
 
@@ -109,6 +132,11 @@ class PlantSession {
     }
     const generation = ++this.generation;
     this.points = [];
+    this.graphBucket = -1;
+    this.graphSum = 0;
+    this.graphCount = 0;
+    this.graphLastSampleAt = 0;
+    this.graphLastValue = null;
     this.graphRevision++;
     this.lastPacketAt = 0;
     this.update({
@@ -235,9 +263,16 @@ class PlantSession {
     });
   };
 
+  private patches = new Map<string, Patch>();
+  selectPreset = (lane: "synth" | "instrument", id: string) => {
+    if (this.snapshot.config[lane].preset === id) return;
+    this.configure({ ...this.snapshot.config, [lane]: this.patches.get(id) ?? copyPatch(id) });
+  };
   configure = (config: Configuration) => {
     const previous = this.snapshot.config;
     const next = sanitizeConfiguration(config);
+    this.patches.set(previous.synth.preset, previous.synth);
+    this.patches.set(previous.instrument.preset, previous.instrument);
     this.update({ config: next, error: null });
     void this.audio?.configure(next).catch((error) => {
       if (this.snapshot.config === next) this.update({ config: previous });
@@ -257,5 +292,14 @@ export function usePlantSession() {
     plantSession.subscribe,
     plantSession.getSnapshot,
     plantSession.getSnapshot,
+  );
+}
+
+// Subscribe music controls only to settings/playback, never to the chart packets.
+export function usePlantSessionValue<T>(select: (snapshot: Snapshot) => T): T {
+  return useSyncExternalStore(
+    plantSession.subscribe,
+    () => select(plantSession.getSnapshot()),
+    () => select(plantSession.getSnapshot()),
   );
 }

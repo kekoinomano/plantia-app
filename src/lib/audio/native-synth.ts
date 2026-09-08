@@ -6,8 +6,10 @@ import type { Event } from "../sonora/composer";
 import type { Configuration } from "../sonora/presets";
 
 const BLOCK_SECONDS = 0.04;
-const MIN_RESERVE = 0.12;
-const MAX_RESERVE = 0.6;
+// Native playback must outlast a UI/menu render that blocks the JS producer.
+// 120 ms was exhausted before a modal finished opening, causing an underrun.
+const MIN_RESERVE = 1.2;
+const MAX_RESERVE = 2;
 const FADE = 0.015;
 const SILENT = 0.00001;
 
@@ -81,7 +83,8 @@ export class NativeSynth {
     })));
     this.active = true;
     this.quietSeconds = 0;
-    this.wake();
+    // BLE callbacks also keep the producer alive when Android pauses UI timers.
+    this.pump();
   }
 
   activity(until: number) {
@@ -109,7 +112,7 @@ export class NativeSynth {
     // Notifications only wake the producer. Queue duration is derived from the
     // hardware clock, so delayed JS notifications cannot invent extra reserve.
     source.onBufferEnded = () => {
-      if (this.source === source) this.wake();
+      if (this.source === source) this.pump();
     };
     this.source = source;
   }
@@ -138,13 +141,15 @@ export class NativeSynth {
     gain.linearRampToValueAtTime(0, Math.max(now + FADE * 2, this.end));
   }
 
-  private async pump() {
+  private pump() {
     if (this.pumping || this.closed || this.muted || !this.active) return;
     this.pumping = true;
     const generation = this.generation;
     const core = this.core;
     const valid = () => generation === this.generation && !this.closed && !this.muted;
     try {
+      const batchStart = performance.now();
+      let batchBlocks = 0;
       while (valid() && this.active && this.remaining() < this.reserve) {
         this.advance();
         if (!valid()) return;
@@ -200,8 +205,15 @@ export class NativeSynth {
           this.log("START");
         }
         if (performance.now() - this.lastLog >= 2000) this.log("STATUS");
-        // Let BLE, transport controls and configuration updates run between blocks.
-        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        // A timer after EACH 40 ms block can take longer than the audio itself
+        // when React/BLE are busy. Refill in bounded batches before yielding.
+        batchBlocks++;
+        if (batchBlocks >= 4 || performance.now() - batchStart >= 12) {
+          // Return completely: never leave pumping=true waiting for a UI timer.
+          // Native buffer-ended/BLE events can immediately run the next batch
+          // while the activity is in the background. Timers are only a fallback.
+          break;
+        }
       }
     } catch (error) {
       if (valid()) {

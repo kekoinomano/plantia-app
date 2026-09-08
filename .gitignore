@@ -41,3 +41,9 @@ example
 # generated native folders
 /ios
 /android
+
+# Generated Android module caches and compilation outputs
+/modules/*/android/build/
+/modules/*/android/.cxx/
+/modules/*/android/.gradle/
+/modules/*/android/.kotlin/

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Linking,
@@ -9,29 +9,22 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import { plantSession, usePlantSession } from "@/lib/plant-session";
 import { preset } from "@/lib/sonora/presets";
 import { Botanical, Icon } from "@/components/plant-icon";
 import { SignalChart } from "@/components/signal-chart";
-import { SoundEditor } from "@/components/sound-editor";
+import { SoundEditor, soundIcon } from "@/components/sound-editor";
 import { colors, serif } from "@/components/plantia-theme";
 
 export default function HomeScreen() {
   const state = usePlantSession();
   const [editor, setEditor] = useState<"synth" | "instrument" | "mix" | null>(null);
+  const [editorMode, setEditorMode] = useState<"choose" | "edit">("choose");
+  const closeEditor = useCallback(() => setEditor(null), []);
   const [credits, setCredits] = useState(false);
   const connected = state.connection === "connected";
   const scanning = state.connection === "scanning";
   const busy = scanning || state.connection === "connecting" || state.connection === "disconnecting";
-  const signalLabel =
-    state.signal === "live"
-      ? "EN VIVO"
-      : state.signal === "gap"
-        ? "SIN SEÑAL"
-        : connected
-          ? "ESCUCHANDO"
-          : "EN CALMA";
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -175,73 +168,29 @@ export default function HomeScreen() {
             </Pressable>
           </View>
         )}
-        <View style={styles.signalCard}>
-          <View style={styles.sectionRow}>
-            <View>
-              <Text style={styles.cardEyebrow}>EL PULSO DE TU PLANTA</Text>
-              <View style={styles.valueRow}>
-                <Text style={styles.signalValue}>
-                  {state.lastValue === null
-                    ? "—"
-                    : Math.round(state.lastValue).toLocaleString("es-ES")}
-                </Text>
-                <Text style={styles.valueUnit}>señal del sensor</Text>
-              </View>
-            </View>
-            <View style={styles.liveBadge}>
-              <View
-                style={[
-                  styles.badgeDot,
-                  state.signal === "live" && { backgroundColor: colors.green },
-                ]}
-              />
-              <Text style={styles.badgeText}>{signalLabel}</Text>
-            </View>
-          </View>
-          <SignalChart
-            points={state.points}
-            live={state.signal === "live"}
-            waiting={connected || busy}
-          />
-        </View>
+        <SignalChart
+          points={state.points}
+          live={state.signal === "live"}
+          waiting={connected || busy}
+        />
         <View style={styles.soundHeading}>
           <Text style={styles.sectionTitle}>Tu paisaje sonoro</Text>
           <Text style={styles.tiny}>DOS VOCES, UNA PLANTA</Text>
         </View>
         <View style={styles.soundCards}>
           {(["synth", "instrument"] as const).map((lane, i) => (
-            <Pressable
-              key={lane}
-              accessibilityRole="button"
-              accessibilityLabel={`Elegir ${lane === "synth" ? "synth" : "instrumento"} y modificar parámetros`}
-              onPress={() => setEditor(lane)}
-              style={({ pressed }) => [styles.soundCard, pressed && { opacity: 0.75 }]}
-            >
-              <LinearGradient
-                colors={i === 0 ? ["#E8EDE0", "#F1F3EA"] : ["#F0EADB", "#F6F1E6"]}
-                style={StyleSheet.absoluteFill}
-              />
-              <View style={styles.cardTop}>
-                <Text style={styles.cardEyebrow}>
-                  {i === 0 ? "01 / SYNTH" : "02 / INSTRUMENTO"}
-                </Text>
-                <Icon
-                  name={i === 0 ? "sound" : "leaf"}
-                  size={18}
-                  color={i === 0 ? "#78916F" : "#9B906B"}
-                />
-              </View>
-              <Text numberOfLines={2} style={styles.soundName}>
-                {preset(state.config[lane].preset).name}
-              </Text>
-              <Text style={styles.soundScale}>
-                {state.config[lane].scale} · {state.config[lane].tuning} Hz
-              </Text>
-              <View style={styles.cardBottom}>
-                <Text style={styles.editLabel}>Explorar sonido</Text>
-                <Icon name="chevron" size={15} />
-              </View>
-            </Pressable>
+            <View key={lane} style={[styles.soundCard, i === 1 && { backgroundColor: "#F3EEDF" }]}>
+              <Pressable accessibilityRole="button" accessibilityLabel={`Elegir ${lane === "synth" ? "synth" : "instrumento"}`} onPress={() => { setEditorMode("choose"); setEditor(lane); }} style={styles.soundSelect}>
+                <View style={styles.voiceIcon}><Icon name={soundIcon(state.config[lane].preset)} size={26} color={colors.green} /></View>
+                <View style={styles.voiceCopy}>
+                  <Text style={styles.cardEyebrow}>{i === 0 ? "ATMÓSFERA · SYNTH" : "MELODÍA · INSTRUMENTO"}</Text>
+                  <Text style={styles.soundName}>{preset(state.config[lane].preset).name}</Text>
+                  <Text style={styles.soundScale}>{state.config[lane].scale} · {state.config[lane].tuning} Hz</Text>
+                </View>
+                <View style={{ transform: [{ rotate: "90deg" }] }}><Icon name="chevron" size={16} /></View>
+              </Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel={`Editar ${preset(state.config[lane].preset).name}`} onPress={() => { setEditorMode("edit"); setEditor(lane); }} style={styles.voiceEdit}><Icon name="edit" size={19} /></Pressable>
+            </View>
           ))}
         </View>
         <Pressable accessibilityRole="button" onPress={() => setEditor("mix")} style={styles.mix}>
@@ -295,7 +244,7 @@ export default function HomeScreen() {
           </View>
         )}
       </ScrollView>
-      <SoundEditor lane={editor} onClose={() => setEditor(null)} />
+      <SoundEditor initialMode={editorMode} lane={editor} onClose={closeEditor} />
     </SafeAreaView>
   );
 }
@@ -400,40 +349,7 @@ const styles = StyleSheet.create({
   deviceInfo: { flex: 1, gap: 2 },
   deviceName: { color: colors.ink, fontSize: 13 },
   deviceMeta: { color: colors.muted, fontSize: 9 },
-  signalCard: {
-    backgroundColor: colors.paper,
-    borderRadius: 26,
-    padding: 20,
-    marginTop: 26,
-    borderWidth: 1,
-    borderColor: colors.line,
-  },
-  sectionRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 8,
-  },
   cardEyebrow: { color: colors.muted, fontSize: 8, letterSpacing: 1.4 },
-  valueRow: { flexDirection: "row", alignItems: "baseline", gap: 7, marginTop: 8 },
-  signalValue: {
-    color: colors.ink,
-    fontFamily: serif,
-    fontSize: 26,
-    fontVariant: ["tabular-nums"],
-  },
-  valueUnit: { color: colors.muted, fontSize: 9 },
-  liveBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 9,
-    paddingVertical: 7,
-    backgroundColor: colors.soft,
-    borderRadius: 20,
-  },
-  badgeDot: { width: 4, height: 4, backgroundColor: "#ACB5A2", borderRadius: 2 },
-  badgeText: { color: colors.muted, fontSize: 7, letterSpacing: 0.9 },
   soundHeading: {
     marginTop: 29,
     marginBottom: 15,
@@ -444,14 +360,18 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { fontFamily: serif, fontSize: 21, color: colors.ink },
   tiny: { color: colors.muted, fontSize: 7, letterSpacing: 0.6 },
-  soundCards: { flexDirection: "row", gap: 12 },
-  soundCard: { flex: 1, padding: 17, borderRadius: 23, overflow: "hidden", minHeight: 156 },
+  soundCards: { gap: 12 },
+  soundCard: { flexDirection: "row", alignItems: "center", borderRadius: 23, backgroundColor: "#EAF0E2", paddingRight: 12 },
+  soundSelect: { flex: 1, flexDirection: "row", alignItems: "center", padding: 17, gap: 13, minHeight: 105 },
+  voiceIcon: { width: 48, height: 48, backgroundColor: "#FFFFFF88", borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  voiceCopy: { flex: 1 },
+  voiceEdit: { width: 44, height: 44, borderRadius: 15, backgroundColor: "#FFFFFF88", alignItems: "center", justifyContent: "center" },
   cardTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 4 },
   soundName: {
     fontFamily: serif,
     fontSize: 23,
     color: colors.ink,
-    marginTop: 23,
+    marginTop: 7,
     letterSpacing: -0.6,
   },
   soundScale: { color: colors.muted, fontSize: 9, marginTop: 7 },

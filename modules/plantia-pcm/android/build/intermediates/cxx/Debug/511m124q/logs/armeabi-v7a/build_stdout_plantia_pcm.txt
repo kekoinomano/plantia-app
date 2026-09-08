@@ -1,2 +1,0 @@
-ninja: Entering directory `/Users/sergio/Developer/plantia-app/modules/plantia-pcm/android/.cxx/Debug/511m124q/armeabi-v7a'
-ninja: no work to do.

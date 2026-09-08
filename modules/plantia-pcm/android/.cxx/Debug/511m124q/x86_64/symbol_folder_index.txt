@@ -1,1 +1,0 @@
-/Users/sergio/Developer/plantia-app/modules/plantia-pcm/android/build/intermediates/cxx/Debug/511m124q/obj/x86_64

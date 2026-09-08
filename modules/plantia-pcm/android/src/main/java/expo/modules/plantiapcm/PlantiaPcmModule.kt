@@ -1,5 +1,6 @@
 package expo.modules.plantiapcm
 
+import android.content.Intent
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
@@ -14,10 +15,29 @@ class PlantiaPcmModule : Module() {
   private external fun renderNative(id: Int, frames: Int): ByteArray
   private external fun statusNative(id: Int): DoubleArray
 
+  private val engines = mutableSetOf<Int>()
+
   override fun definition() = ModuleDefinition {
     Name("PlantiaPcm")
-    Function("create") { rate: Double -> createNative(rate) }
-    Function("destroy") { id: Int -> destroyNative(id) }
+    Function("create") { rate: Double ->
+      val context = requireNotNull(appContext.reactContext)
+      context.startService(Intent(context, PlantiaPlaybackLifecycleService::class.java))
+      createNative(rate).also { engines.add(it) }
+    }
+    Function("destroy") { id: Int ->
+      destroyNative(id)
+      engines.remove(id)
+      if (engines.isEmpty()) appContext.reactContext?.let {
+        it.stopService(Intent(it, PlantiaPlaybackLifecycleService::class.java))
+      }
+    }
+    OnDestroy {
+      engines.forEach { destroyNative(it) }
+      engines.clear()
+      appContext.reactContext?.let {
+        it.stopService(Intent(it, PlantiaPlaybackLifecycleService::class.java))
+      }
+    }
     Function("configure") { id: Int, values: List<Double> -> configureNative(id, values.toDoubleArray()) }
     Function("schedule") { id: Int, values: List<Double> -> scheduleNative(id, values.toDoubleArray()) }
     Function("sample") { id: Int, key: Int, data: ByteArray -> sampleNative(id, key, data) }

@@ -6,7 +6,7 @@ export function Icon({
   size = 22,
   color = colors.ink,
 }: {
-  name: "leaf" | "bluetooth" | "play" | "pause" | "sliders" | "close" | "chevron" | "sound";
+  name: "leaf" | "bluetooth" | "play" | "pause" | "sliders" | "close" | "chevron" | "sound" | "edit" | "check" | "search" | "wave" | "keys" | "bell" | "strings" | "wind";
   size?: number;
   color?: string;
 }) {
@@ -21,6 +21,14 @@ export function Icon({
       strokeLinecap="round"
       strokeLinejoin="round"
     >
+      {name === "edit" && <Path d="m15 4 5 5M4 20l5-1L21 7a2 2 0 0 0-5-5L4 14Z" />}
+      {name === "check" && <Path d="m5 12 4 4L19 6" />}
+      {name === "search" && <><Circle cx={10} cy={10} r={6} /><Path d="m15 15 5 5" /></>}
+      {name === "wave" && <Path d="M2 12c3-15 5 15 8 0s5 15 8 0 4 0 4 0" />}
+      {name === "keys" && <><Path d="M3 4h18v16H3ZM9 4v16m6-16v16" /><Path d="M7 4v8m6-8v8m5-8v8" strokeWidth={3} /></>}
+      {name === "bell" && <Path d="M5 17h14l-2-4V9a5 5 0 0 0-10 0v4ZM10 21h4M12 2v2" />}
+      {name === "strings" && <><Path d="m15 3 6 6M18 6l-8 8M8 9c-5 0-8 7-4 11s11 1 11-4c-4 1-7-2-7-7Z" /><Circle cx={8} cy={16} r={2} /></>}
+      {name === "wind" && <Path d="m4 20 16-16M4 14l6 6M8 10l6 6m-2-10 6 6m-2-10 6 6" />}
       {name === "leaf" && (
         <>
           <Path d="M5 19C1 7 10 3 21 3c0 12-6 18-14 14" />

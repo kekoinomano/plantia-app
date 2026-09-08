@@ -6,43 +6,27 @@ import { transformFileSync } from "@babel/core";
 import { LiveMusicEngine } from "../src/lib/plant-live-engine.ts";
 import { defaultConfiguration } from "../src/lib/sonora/presets.ts";
 import { decodePlantPacket } from "../src/lib/plant-packet.ts";
-import {
-  createSignalChartFrame,
-  formatSignalHistory,
-  SIGNAL_SAMPLE_COUNT,
-} from "../src/lib/signal-chart.ts";
+import { signalPath, signalBounds } from "../src/lib/signal-chart.ts";
 
-test("la gráfica ocupa todo el ancho desde el primer paquete y conserva una ventana de 12 s", () => {
-  const firstPacket = Array.from({ length: 10 }, (_, i) => ({
-    time: i * 20,
-    value: 100 + i * 10,
-  }));
-  const initial = createSignalChartFrame(firstPacket, 140);
-  assert.equal(initial.values.length, SIGNAL_SAMPLE_COUNT);
-  assert.equal(initial.historyMs, 180);
-  assert.equal(formatSignalHistory(initial.historyMs), "−0,2 s");
-  assert.ok(initial.values[0] > initial.values.at(-1));
-
-  const longHistory = Array.from({ length: 14 }, (_, i) => ({
-    time: i * 1000,
-    value: i,
-  }));
-  const windowed = createSignalChartFrame(longHistory, 140);
-  assert.equal(windowed.historyMs, 12000);
-  assert.equal(formatSignalHistory(windowed.historyMs), "−12 s");
+test("la señal ocupa su tiempo real y los nuevos paquetes no deforman el pasado", () => {
+  const points = [{ time: 1000, value: 100 }, { time: 1200, value: 150 }];
+  const original = signalPath(points, 1200, 140, 0, 200);
+  assert.equal(original, "M314.67,70.00L320.00,40.00");
+  assert.equal(signalPath([...points, { time: 1400, value: 50 }], 1200, 140, 0, 200), original + "L320,40.00");
+  const moved = signalPath(points, 1800, 140, 0, 200);
+  assert.equal(moved, "M298.67,70.00L304.00,40.00");
 });
 
-test("la gráfica interpola entre valores en vez de dibujar escalones", () => {
-  const frame = createSignalChartFrame(
-    [
-      { time: 0, value: 0 },
-      { time: 1000, value: 100 },
-    ],
-    140,
-    3,
-  );
-  assert.ok(frame.values[0] > frame.values[1]);
-  assert.ok(frame.values[1] > frame.values[2]);
+test("el extremo se dibuja entre muestras y los huecos no inventan señal", () => {
+  const points = [{ time: 1000, value: 100 }, { time: 1200, value: 200 }];
+  assert.equal(signalPath(points, 1100, 140, 0, 200), "M317.33,70.00L320,40.00");
+  assert.equal(signalPath([...points, { time: 3000, value: 100 }], 3000, 140, 0, 200), "M266.67,70.00L272.00,10.00M320.00,70.00");
+  assert.equal(signalPath(points, 15000, 140, 0, 200), "");
+  assert.deepEqual(signalBounds([{ time: 0, value: 100 }]), { low: 90, high: 110 });
+});
+
+test("el borde izquierdo interpola sin cambiar la escala temporal", () => {
+  assert.equal(signalPath([{ time: 0, value: 0 }, { time: 200, value: 200 }], 12100, 140, 0, 200), "M0,70.00L2.67,10.00");
 });
 
 test("BLE conserva los diez valores y rechaza paquetes corruptos", () => {

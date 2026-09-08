@@ -1,163 +1,141 @@
-import { useEffect, useMemo } from "react";
-import { StyleSheet, Text, View } from "react-native";
-import Svg, { Defs, LinearGradient, Stop, Path, Line } from "react-native-svg";
+import { memo, useEffect, useId, useRef } from "react";
+import { AppState, StyleSheet, View } from "react-native";
+import Svg, { Circle, ClipPath, Defs, G, Path, Rect } from "react-native-svg";
 import Animated, {
   useAnimatedProps,
+  useFrameCallback,
   useSharedValue,
-  withTiming,
-  Easing,
 } from "react-native-reanimated";
 import type { SignalPoint } from "@/lib/plant-session";
-import {
-  createSignalChartFrame,
-  formatSignalHistory,
-  SIGNAL_SAMPLE_COUNT,
-} from "@/lib/signal-chart";
 import { colors } from "./plantia-theme";
+
 const AnimatedPath = Animated.createAnimatedComponent(Path);
-const WIDTH = 320,
-  HEIGHT = 140,
-  COUNT = SIGNAL_SAMPLE_COUNT;
+const AnimatedGroup = Animated.createAnimatedComponent(G);
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+const WIDTH = 320;
+const HEIGHT = 170;
+const WINDOW_MS = 5000;
+const REVEAL_DELAY_MS = 250;
+type Segment = { x1: number; x2: number; y1: number; y2: number; c1: number; c2: number };
+const EMPTY = { path: "", anchor: 0, segments: [] as Segment[] };
 
-function clamp(value: number, low: number, high: number) {
-  "worklet";
-  return Math.max(low, Math.min(high, value));
-}
-
-function makePath(values: number[], progress: number, previous: number[]) {
-  "worklet";
-  if (!values.length) return "";
-  const y = values.map((value, i) => previous[i] + (value - previous[i]) * progress);
-  const step = WIDTH / Math.max(1, values.length - 1);
-  let d = `M0,${y[0].toFixed(2)} `;
-
-  // A bounded Catmull-Rom curve passes through every sample without ringing
-  // above or below sharp sensor changes.
-  for (let i = 0; i < y.length - 1; i++) {
-    const y0 = y[Math.max(0, i - 1)];
-    const y1 = y[i];
-    const y2 = y[i + 1];
-    const y3 = y[Math.min(y.length - 1, i + 2)];
-    const low = Math.min(y1, y2);
-    const high = Math.max(y1, y2);
-    const cp1y = clamp(y1 + ((y2 - y0) * 0.7) / 6, low, high);
-    const cp2y = clamp(y2 - ((y3 - y1) * 0.7) / 6, low, high);
-    d += `C${(i * step + step / 3).toFixed(2)},${cp1y.toFixed(2)} `;
-    d += `${((i + 1) * step - step / 3).toFixed(2)},${cp2y.toFixed(2)} `;
-    d += `${((i + 1) * step).toFixed(2)},${y2.toFixed(2)} `;
-  }
-  return d;
-}
-export function SignalChart({
-  points,
-  live,
-  waiting,
-}: {
+export const SignalChart = memo(function SignalChart({ points, live, waiting }: {
   points: SignalPoint[];
   live: boolean;
   waiting: boolean;
 }) {
-  const previous = useSharedValue(Array(COUNT).fill(HEIGHT / 2) as number[]);
-  const next = useSharedValue(Array(COUNT).fill(HEIGHT / 2) as number[]);
-  const progress = useSharedValue(1);
-  const frame = useMemo(() => createSignalChartFrame(points, HEIGHT), [points]);
+  const clipId = `signal-${useId().replace(/:/g, "")}`;
+  const firstSample = useRef<number | null>(null);
+  const shape = useSharedValue(EMPTY);
+  const clock = useSharedValue(0);
+  const active = useSharedValue(AppState.currentState === "active");
+  const running = useSharedValue(false);
+  const scale = useRef<{ low: number; high: number; at: number } | null>(null);
+
   useEffect(() => {
-    if (!frame.values.length) return;
-    previous.value = next.value.map(
-      (v, i) => previous.value[i] + (v - previous.value[i]) * progress.value,
-    );
-    next.value = frame.values;
-    progress.value = 0;
-    progress.value = withTiming(1, {
-      duration: 360,
-      easing: Easing.bezier(0.22, 1, 0.36, 1),
+    const subscription = AppState.addEventListener("change", (state) => {
+      active.value = state === "active";
     });
-  }, [frame, next, previous, progress]);
-  const lineProps = useAnimatedProps(() => ({
-    d: makePath(next.value, progress.value, previous.value),
-  }));
-  const areaProps = useAnimatedProps(() => ({
-    d: `${makePath(next.value, progress.value, previous.value)}L${WIDTH},${HEIGHT} L0,${HEIGHT} Z`,
-  }));
-  return (
-    <View
-      accessibilityLabel={
-        live
-          ? "Gráfica de los últimos doce segundos de la señal de tu planta"
-          : "Esperando datos de la planta"
+    return () => subscription.remove();
+  }, [active]);
+  useEffect(() => { running.value = live || waiting; }, [live, waiting, running]);
+
+  useEffect(() => {
+    if (!points.length) {
+      shape.value = EMPTY;
+      scale.current = null;
+      firstSample.current = null;
+      return;
+    }
+    if (firstSample.current === null) firstSample.current = points[0].time;
+    // Collect a few readings before choosing a scale; one startup spike must
+    // not define the amplitude of the entire first window.
+    if (points[points.length - 1].time - firstSample.current < 300) return;
+    const now = performance.now();
+    const wallNow = Date.now();
+    const data = points.filter((point) => point.time >= now - WINDOW_MS - 200);
+    if (!data.length) {
+      shape.value = EMPTY;
+      return;
+    }
+    const recent = data.filter((point) => point.time >= now - 1500);
+    const values = (recent.length >= 6 ? recent : data).map((point) => point.value).sort((a, b) => a - b);
+    const trim = values.length >= 6 ? Math.max(1, Math.floor(values.length * 0.1)) : 0;
+    const min = values[trim], max = values[values.length - 1 - trim];
+    const padding = Math.max(2, (max - min) * 0.2);
+    const previous = scale.current;
+    // Slowly follow amplitude, independently of packet count.
+    const blend = previous ? 1 - Math.exp(-(now - previous.at) / 450) : 1;
+    const low = previous ? previous.low + (min - padding - previous.low) * blend : min - padding;
+    const high = previous ? previous.high + (max + padding - previous.high) * blend : max + padding;
+    scale.current = { low, high, at: now };
+    const vertices = data.map((point) => ({
+      x: WIDTH - (now - REVEAL_DELAY_MS - point.time) * WIDTH / WINDOW_MS,
+      y: Math.max(10, Math.min(HEIGHT - 10, HEIGHT - 14 - (point.value - low) / Math.max(1, high - low) * (HEIGHT - 28))),
+      time: point.time,
+    }));
+    let path = "";
+    const segments: Segment[] = [];
+    for (let i = 0; i < vertices.length; i++) {
+      const point = vertices[i];
+      const a = vertices[i - 1];
+      if (!a || point.time - a.time > 600) {
+        path += `M${point.x.toFixed(2)},${point.y.toFixed(2)}`;
+        continue;
       }
-    >
-      <View style={styles.plot}>
-        <Svg
-          width="100%"
-          height={HEIGHT}
-          viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-          preserveAspectRatio="none"
-        >
-          <Defs>
-            <LinearGradient id="signalFill" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor="#8DAB7A" stopOpacity={0.35} />
-              <Stop offset="1" stopColor="#8DAB7A" stopOpacity={0} />
-            </LinearGradient>
-          </Defs>
-          {[30, 70, 110].map((y) => (
-            <Line
-              key={y}
-              x1={0}
-              y1={y}
-              x2={WIDTH}
-              y2={y}
-              stroke={colors.line}
-              strokeDasharray="3 6"
-            />
-          ))}
-          {points.length > 0 && (
-            <>
-              <AnimatedPath animatedProps={areaProps} fill="url(#signalFill)" />
-              <AnimatedPath
-                animatedProps={lineProps}
-                fill="none"
-                stroke={live ? colors.green : "#A6B09F"}
-                strokeWidth={1.7}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </>
-          )}
-        </Svg>
-        {!points.length && (
-          <View style={styles.empty}>
-            <Text style={styles.emptyTitle}>
-              {waiting ? "Un momento para conectar." : "Cada planta tiene su propio ritmo."}
-            </Text>
-            <Text style={styles.emptyText}>
-              {waiting ? "Esperando las primeras lecturas…" : "Su señal aparecerá aquí."}
-            </Text>
-          </View>
-        )}
-      </View>
-      <View style={styles.axis}>
-        <Text style={styles.axisText}>{formatSignalHistory(frame.historyMs)}</Text>
-        <Text style={styles.axisText}>ahora</Text>
-      </View>
+      // Bounded curves soften the trace without adding peaks between readings.
+      const before = vertices[Math.max(0, i - 2)];
+      const after = vertices[Math.min(vertices.length - 1, i + 1)];
+      const lower = Math.min(a.y, point.y), upper = Math.max(a.y, point.y);
+      const c1 = Math.max(lower, Math.min(upper, a.y + (point.y - before.y) / 6));
+      const c2 = Math.max(lower, Math.min(upper, point.y - (after.y - a.y) / 6));
+      const dx = (point.x - a.x) / 3;
+      segments.push({ x1: a.x, x2: point.x, y1: a.y, y2: point.y, c1, c2 });
+      path += `C${(a.x + dx).toFixed(2)},${c1.toFixed(2)} ${(point.x - dx).toFixed(2)},${c2.toFixed(2)} ${point.x.toFixed(2)},${point.y.toFixed(2)}`;
+    }
+    // Rebase geometry and its timestamp together. The UI clock uses the same
+    // wall-time origin, never a separately accumulated frame counter.
+    shape.value = { path, anchor: wallNow, segments: segments.slice(-12) };
+    clock.value = wallNow;
+  }, [points, shape, clock]);
+
+  // Only translate the existing path at 30 fps. No path construction, sample
+  // interpolation or React renders on each animation frame.
+  useFrameCallback(() => {
+    if (!active.value || !running.value || !shape.value.anchor) return;
+    const now = Date.now();
+    if (now - clock.value >= 32) clock.value = now;
+  });
+  const groupProps = useAnimatedProps(() => ({
+    matrix: [1, 0, 0, 1, -Math.max(0, clock.value - shape.value.anchor) * WIDTH / WINDOW_MS, 0] as [number, number, number, number, number, number],
+  }));
+  const lineProps = useAnimatedProps(() => ({ d: shape.value.path }));
+  const cursorProps = useAnimatedProps(() => {
+    const x = WIDTH + Math.max(0, clock.value - shape.value.anchor) * WIDTH / WINDOW_MS;
+    for (const segment of shape.value.segments) {
+      if (x < segment.x1 || x > segment.x2 || segment.x2 <= segment.x1) continue;
+      const t = (x - segment.x1) / (segment.x2 - segment.x1), u = 1 - t;
+      return { cy: u * u * u * segment.y1 + 3 * u * u * t * segment.c1 + 3 * u * t * t * segment.c2 + t * t * t * segment.y2, opacity: 1 };
+    }
+    return { cy: HEIGHT / 2, opacity: 0 };
+  });
+
+  return (
+    <View style={styles.plot} accessibilityLabel={points.length ? "El pulso de tu planta" : waiting ? "Esperando la señal de tu planta" : "Sin señal"}>
+      <Svg width="100%" height={HEIGHT} viewBox={`0 0 ${WIDTH} ${HEIGHT}`} preserveAspectRatio="none">
+        <Defs><ClipPath id={clipId}><Rect x={0} y={0} width={WIDTH} height={HEIGHT} /></ClipPath></Defs>
+        <G clipPath={`url(#${clipId})`}>
+          <AnimatedGroup animatedProps={groupProps}>
+            <AnimatedPath animatedProps={lineProps} fill="none" stroke={colors.green} strokeOpacity={0.06} strokeWidth={5} strokeLinecap="round" />
+            <AnimatedPath animatedProps={lineProps} fill="none" stroke={live ? colors.green : "#A6B09F"} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" />
+          </AnimatedGroup>
+          {live && <AnimatedCircle animatedProps={cursorProps} cx={WIDTH - 1.5} r={2} fill={colors.green} />}
+        </G>
+      </Svg>
     </View>
   );
-}
+});
+
 const styles = StyleSheet.create({
-  plot: { height: HEIGHT, marginTop: 15 },
-  empty: { ...StyleSheet.absoluteFill, alignItems: "center", justifyContent: "center", gap: 7 },
-  emptyTitle: {
-    color: colors.muted,
-    fontSize: 13,
-    backgroundColor: colors.paper,
-    paddingHorizontal: 6,
-  },
-  emptyText: {
-    color: "#9CA394",
-    fontSize: 11,
-    backgroundColor: colors.paper,
-    paddingHorizontal: 6,
-  },
-  axis: { flexDirection: "row", justifyContent: "space-between", marginTop: 8 },
-  axisText: { color: colors.muted, fontSize: 10 },
+  plot: { height: HEIGHT, width: "100%", marginTop: 24, marginBottom: 4, overflow: "hidden" },
 });
