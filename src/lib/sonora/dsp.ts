@@ -50,7 +50,7 @@ class Effects {
       i = x | 0;
     return b[i] + (b[(i + 1) % b.length] - b[i]) * (x - i);
   }
-  process(l: number, r: number, p: Patch): [number, number] {
+  process(l: number, r: number, p: Patch, movement = 0): [number, number] {
     const d = p.delay,
       c = p.chorus,
       rv = p.reverb;
@@ -61,7 +61,7 @@ class Effects {
     this.dr[this.at] = r + (d.on ? echoR * 0.32 : 0);
     if (c.on) {
       this.chorusPhase += (0.08 + (c.rate / 100) * 1.12) / this.rate;
-      const depth = c.depth / 100;
+      const depth = clamp((c.depth / 100) * (0.72 + movement * 0.42));
       const cl = this.tap(
           this.dl,
           0.018 + sin(this.chorusPhase) * 0.003 * depth,
@@ -123,6 +123,8 @@ type Voice = {
   detuneRatio: number;
   design: SynthVoice;
   frequency: number;
+  filterState: number;
+  phase3: number;
   attenuation: number;
   harmonics: number[];
   ratios: number[];
@@ -144,7 +146,7 @@ export function prepareVoice(rate: number, bank: Bank, n: Note): Voice | undefin
   if (n.velocity <= 0) return;
   const desc = preset(n.patch.preset),
     isGreeting = n.lane === 'greeting';
-  const program = isGreeting ? 'orchestral_harp' : desc.program;
+  const program = isGreeting ? undefined : desc.program;
   const sample = sampleFor(
       program === 'choir_organ' ? 'choir_aahs' : program,
       n.midi,
@@ -190,11 +192,17 @@ export function prepareVoice(rate: number, bank: Bank, n: Note): Voice | undefin
     detuneRatio: 2 ** (design.detune / 1200),
     design,
     frequency,
+    filterState: 0,
+    phase3: 0.37,
     attenuation: Math.min(1, Math.sqrt(880 / frequency)),
     harmonics,
     ratios: desc.model === 'bowl' ? [1, 2.71, 4.05, 5.43] : [1, 2, 3, 4],
     attack: isGreeting
-      ? 0.14
+      ? 0.008
+      : n.lane === 'synth' && n.fade
+        ? n.patch.envelope.on
+          ? 0.35 + n.fade * (0.35 + (n.patch.envelope.attack / 100) * 0.65)
+          : 0.35
       : n.patch.envelope.on
         ? 0.004 +
           (n.lane === 'synth' ? 1.3 : 0.45) *
@@ -203,7 +211,11 @@ export function prepareVoice(rate: number, bank: Bank, n: Note): Voice | undefin
           ? 0.08
           : 0.004,
     release: isGreeting
-      ? 2.8
+      ? 0.65
+      : n.lane === 'synth' && n.fade
+        ? n.patch.envelope.on
+          ? 0.6 + n.fade * (0.5 + (n.patch.envelope.release / 100) * 0.8)
+          : 0.8
       : n.patch.envelope.on
         ? 0.06 + 3.5 * (n.patch.envelope.release / 100) ** 2
         : 0.35,
@@ -214,7 +226,7 @@ export function prepareVoice(rate: number, bank: Bank, n: Note): Voice | undefin
     flavor,
     model: desc.model,
     gain:
-      (isGreeting ? 0.34 : n.lane === 'synth' ? 0.17 : 0.2) *
+      (isGreeting ? 0.16 : n.lane === 'synth' ? 0.48 : 0.28) *
       (n.velocity / 100) ** 1.15,
   };
 }
@@ -227,7 +239,9 @@ export class AudioCore {
   private cancelled = new Set<number>();
   private cursor = 0;
   private duck = 1;
+  private synthDuck = 1;
   private greetingAt = -Infinity;
+  private instrumentAt = -Infinity;
   private expression: Expression = {
     brightness: 0.35,
     energy: 0.3,
@@ -265,7 +279,7 @@ export class AudioCore {
     const same = this.voices.filter(
       (v) => v.note.lane === n.lane && v.forced === Infinity,
     );
-    const limit = n.lane === 'synth' ? 6 : n.lane === 'instrument' ? 8 : 4;
+    const limit = n.lane === 'synth' ? 6 : n.lane === 'instrument' ? 8 : 6;
     if (same.length >= limit) same[0].forced = this.time + 0.025;
     this.voices.push(voice);
     if (n.lane === 'greeting') this.greetingAt = this.time;
@@ -287,8 +301,8 @@ export class AudioCore {
     ];
     const greetPatch = {
       ...this.config.instrument,
-      delay: { on: true, wet: 12, rate: 77 },
-      reverb: { on: true, wet: 42, amount: 76 },
+      delay: { on: false, wet: 0, rate: 77 },
+      reverb: { on: true, wet: 20, amount: 32 },
       chorus: { on: true, depth: 25, rate: 13 },
     };
     const patches = [this.config.synth, this.config.instrument, greetPatch];
@@ -298,13 +312,18 @@ export class AudioCore {
         const e = this.pending[at++];
         if (e.type === 'note') {
           if (this.cancelled.has(e.note.id)) this.cancelled.delete(e.note.id);
-          else this.start(e.note);
+          else {
+            this.start(e.note);
+            if (e.note.lane === 'instrument') this.instrumentAt = time;
+          }
         } else if (e.type === 'expression') {
           this.targetExpression = e.expression;
         } else {
           for (const v of this.voices)
-            if (!e.lane || v.note.lane === e.lane)
-              v.forced = Math.min(v.forced, time + 0.15);
+            if (!e.lane || v.note.lane === e.lane) {
+              if (v.note.lane === 'synth') v.stop = Math.min(v.stop, time);
+              else v.forced = Math.min(v.forced, time + 0.15);
+            }
           for (let j = at; j < this.pending.length; j++) {
             const q = this.pending[j];
             if (
@@ -373,14 +392,18 @@ export class AudioCore {
         } else {
           v.phase += v.frequency / this.rate;
           v.phase -= v.phase | 0;
-          v.phase2 += (v.frequency * v.detuneRatio) / this.rate;
+          const livingDetune = 1 + Math.max(0.002, v.detuneRatio - 1) * (0.85 + energy * 0.3);
+          v.phase2 += (v.frequency * livingDetune) / this.rate;
           v.phase2 -= v.phase2 | 0;
+          v.phase3 += v.frequency / (livingDetune * this.rate);
+          v.phase3 -= v.phase3 | 0;
           const design = v.design;
           const breathe = sin(age * design.evolution + v.note.color);
-          const decay = 1 / (1 + age * design.decay);
+          const decay = 0.35 + 0.65 / (1 + age * design.decay);
           for (let j = 0; j < v.harmonics.length; j++) {
+            if (v.frequency * (j + 1) >= this.rate * 0.42) continue;
             const band = this.expressionBands[(j + design.trace) % 9];
-            let weight = j ? 0.6 + brightness * 0.4 + band * 0.55 : 1;
+            let weight = j ? 0.6 + brightness * 0.4 + band * 0.55 : 0.65;
             if (design.family === 'glass') weight *= j ? decay : 0.8;
             else if (design.family === 'plume')
               weight *= j ? decay * decay : 0.55 + decay * 0.45;
@@ -399,30 +422,32 @@ export class AudioCore {
               weight *= j % 2 ? 0.7 : 1 + band * 0.25;
             else weight *= j ? 0.84 + 0.16 * breathe : 1;
             const partial =
-              sin(v.phase * (j + 1)) * (1 - design.blend) +
-              sin(v.phase2 * (j + 1)) * design.blend;
+              sin(v.phase * (j + 1)) * 0.4 +
+              sin(v.phase2 * (j + 1)) * 0.3 +
+              sin(v.phase3 * (j + 1)) * 0.3;
             value += partial * v.harmonics[j] * weight;
           }
           value *=
-            (0.9 + energy * 0.14 + breathe * 0.05) *
-            v.attenuation;
+            (0.78 + energy * 0.14 + breathe * 0.16) *
+            Math.min(1, Math.sqrt(880 / v.frequency));
+          const cutoff = Math.min(
+            this.rate * 0.18,
+            (480 + v.frequency * 0.65 + brightness * brightness * 1800 + energy * 420) *
+              (0.82 + 0.18 * sin(age * (0.035 + design.evolution * 0.12) + v.note.color)),
+          );
+          v.filterState +=
+            (value - v.filterState) * (1 - Math.exp((-TAU * cutoff) / this.rate));
+          value = v.filterState;
         }
         if (v.note.lane === 'greeting') {
-          const bloom =
-            sin(age * v.frequency) * 0.58 + sin(age * v.frequency * 2) * 0.16;
-          let dust = 0;
+          value = 0;
           for (let k = 0; k < 4; k++) {
-            const elapsed = age - k * 0.19,
-              harmonic = k + 2;
-            if (elapsed > 0 && v.frequency * harmonic < this.rate * 0.43)
-              dust +=
-                (sin(elapsed * v.frequency * harmonic) *
-                  smooth(elapsed / 0.2) *
-                  Math.exp(-elapsed / (1.05 + k * 0.16)) *
-                  0.12) /
-                (1 + k * 0.5);
+            const ratio = [1, 2.76, 5.4, 8.93][k];
+            if (v.frequency * ratio < this.rate * 0.42)
+              value += sin(age * v.frequency * ratio) *
+                Math.exp(-age / (0.85 / (1 + k * 1.5))) *
+                [0.78, 0.2, 0.075, 0.025][k];
           }
-          value = value * 0.3 + bloom * Math.exp(-age / 2.1) + dust;
         }
         value *= envelope * v.gain;
         if (v.note.lane === 'synth') {
@@ -439,10 +464,14 @@ export class AudioCore {
           gr += value * v.panR;
         }
       }
-      const duckTarget = time - this.greetingAt < 1.8 ? 0.48 : 1;
+      const duckTarget = time - this.greetingAt < 0.65 && this.config.greetingLevel > 0 ? 0.85 : 1;
       this.duck +=
         (duckTarget - this.duck) *
         (duckTarget < this.duck ? duckAttack : duckRelease);
+      const synthDuckTarget = time - this.instrumentAt < 0.32 && this.config.instrumentLevel > 0 ? 0.62 : 1;
+      this.synthDuck +=
+        (synthDuckTarget - this.synthDuck) *
+        (synthDuckTarget < this.synthDuck ? duckAttack : duckRelease);
       let left = 0,
         right = 0;
       for (let j = 0; j < 3; j++) {
@@ -450,8 +479,12 @@ export class AudioCore {
           j === 0 ? sl : j === 1 ? il : gl,
           j === 0 ? sr : j === 1 ? ir : gr,
           patches[j],
+          j === 0 ? energy : 0,
         );
-        const gain = levels[j] * (j < 2 ? this.duck : 1);
+        const gain =
+          levels[j] *
+          (j < 2 ? this.duck : 1) *
+          (j === 0 ? this.synthDuck : 1);
         left += bl * gain;
         right += br * gain;
         const peak = Math.max(Math.abs(bl * gain), Math.abs(br * gain));

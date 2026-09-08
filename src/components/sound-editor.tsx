@@ -194,7 +194,6 @@ export const SoundEditor = memo(function SoundEditor({
               />
               <SoundSlider
                 label="Saludo de la planta"
-                min={20}
                 value={config.greetingLevel * 100}
                 onChange={(v) => plantSession.configure({ ...config, greetingLevel: v / 100 })}
               />
@@ -303,20 +302,47 @@ export const SoundEditor = memo(function SoundEditor({
                   />
                 </>
               )}
+              {lane === "synth" && (<>
+                <Text style={styles.section}>MOVIMIENTO</Text>
+                <Text style={styles.soundDetail}>El synth crea capas estables que se funden lentamente dentro de su propia escala.</Text>
+                <SoundSlider
+                  label="Fundido ambiental"
+                  min={1}
+                  max={8}
+                  step={0.25}
+                  unit=" s"
+                  value={config.synthMotion.transition}
+                  onChange={(transition) => plantSession.configure({
+                    ...config,
+                    synthMotion: { ...config.synthMotion, transition },
+                  })}
+                />
+                <SoundSlider
+                  label="Estabilidad tonal"
+                  value={config.synthMotion.stability}
+                  onChange={(stability) => plantSession.configure({
+                    ...config,
+                    synthMotion: { ...config.synthMotion, stability },
+                  })}
+                />
+              </>)}
               <Text style={styles.section}>TEXTURAS</Text>
               {effectRows.map(([key, label, first, firstLabel, second, secondLabel]) => {
                 const effect = patch[key] as { on: boolean } & Record<string, number | boolean>;
+                const displayLabel = lane === "synth" && key === "envelope" ? "Entrada y salida" : label;
+                const displayFirst = lane === "synth" && key === "envelope" ? "Aparición" : firstLabel;
+                const displaySecond = lane === "synth" && key === "envelope" ? "Desvanecimiento" : secondLabel;
                 const set = (change: Record<string, number | boolean>) =>
                   updatePatch({ ...patch, [key]: { ...effect, ...change } } as Patch);
                 return (
                   <View key={key} style={styles.effect}>
                     <View style={styles.between}>
-                      <Pressable accessibilityRole="button" accessibilityLabel={`Ajustar ${label}`} accessibilityState={{ expanded: expandedEffect === key }} onPress={() => setExpandedEffect(expandedEffect === key ? null : key)} style={styles.effectHeading}>
-                        <View><Text style={styles.effectTitle}>{label}</Text><Text style={styles.soundDetail}>{effect.on ? "Activado · ajustar" : "Desactivado"}</Text></View>
+                      <Pressable accessibilityRole="button" accessibilityLabel={`Ajustar ${displayLabel}`} accessibilityState={{ expanded: expandedEffect === key }} onPress={() => setExpandedEffect(expandedEffect === key ? null : key)} style={styles.effectHeading}>
+                        <View><Text style={styles.effectTitle}>{displayLabel}</Text><Text style={styles.soundDetail}>{effect.on ? "Activado · ajustar" : "Desactivado"}</Text></View>
                         <Text style={styles.previewText}>{expandedEffect === key ? "−" : "+"}</Text>
                       </Pressable>
                       <Switch
-                        accessibilityLabel={label}
+                        accessibilityLabel={displayLabel}
                         value={effect.on}
                         onValueChange={(on) => { set({ on }); if (on) setExpandedEffect(key); }}
                         trackColor={{ false: colors.line, true: colors.green }}
@@ -325,12 +351,12 @@ export const SoundEditor = memo(function SoundEditor({
                     {expandedEffect === key && (
                       <>
                         <SoundSlider
-                          label={firstLabel}
+                          label={displayFirst}
                           value={Number(effect[first])}
                           onChange={(v) => set({ [first]: v })}
                         />
                         <SoundSlider
-                          label={secondLabel}
+                          label={displaySecond}
                           value={Number(effect[second])}
                           onChange={(v) => set({ [second]: v })}
                         />

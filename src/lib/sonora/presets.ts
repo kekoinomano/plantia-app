@@ -53,6 +53,7 @@ export type Configuration = {
   version: 1;
   synth: Patch;
   instrument: Patch;
+  synthMotion: { transition: number; stability: number };
   speed: number;
   synthLevel: number;
   instrumentLevel: number;
@@ -251,6 +252,7 @@ export function defaultConfiguration(): Configuration {
     version: 1,
     synth: copyPatch('healing'),
     instrument: copyPatch('harp'),
+    synthMotion: { transition: 4.5, stability: 78 },
     speed: 1,
     synthLevel: 0.55,
     instrumentLevel: 0.95,
@@ -261,6 +263,13 @@ const limit = (n: number, a: number, b: number) =>
   Number.isFinite(n) ? Math.max(a, Math.min(b, n)) : a;
 export function sanitizeConfiguration(input: Configuration): Configuration {
   const c = JSON.parse(JSON.stringify(input)) as Configuration;
+  const synthMotion = c.synthMotion as Configuration['synthMotion'] & {
+    glide?: number;
+  };
+  c.synthMotion = {
+    transition: limit(synthMotion?.transition ?? synthMotion?.glide ?? 4.5, 1, 8),
+    stability: limit(synthMotion?.stability ?? 78, 0, 100),
+  };
   for (const lane of ['synth', 'instrument'] as const) {
     const p = c[lane];
     if (!PRESETS.some((x) => x.id === p.preset && x.kind === lane))
@@ -292,7 +301,7 @@ export function sanitizeConfiguration(input: Configuration): Configuration {
   c.speed = limit(c.speed, 0.25, 2);
   c.synthLevel = limit(c.synthLevel, 0, 1);
   c.instrumentLevel = limit(c.instrumentLevel, 0, 1);
-  c.greetingLevel = limit(c.greetingLevel, 0.2, 1);
+  c.greetingLevel = limit(c.greetingLevel, 0, 1);
   c.version = 1;
   return c;
 }

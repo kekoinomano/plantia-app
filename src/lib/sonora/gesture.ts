@@ -45,7 +45,7 @@ export function createGestureDetector() {
         ? median(history.map((p) => p.center))
         : frame.center;
       const noise = median(history.map((p) => p.step));
-      const threshold = Math.max(0.18, noise * 12);
+      const threshold = Math.max(0.13, noise * 9);
       const deviation = Math.abs(frame.center - baseline);
       if (candidate) {
         const contrast = Math.abs(candidate.center - candidate.baseline);
@@ -55,7 +55,7 @@ export function createGestureDetector() {
         if (
           frame.time - candidate.time <= GAP_SECONDS &&
           sameDirection &&
-          Math.abs(frame.center - candidate.center) < contrast * 0.45
+          Math.abs(frame.center - candidate.baseline) > contrast * 0.3
         ) {
           active = {
             baseline: candidate.baseline,
@@ -70,7 +70,7 @@ export function createGestureDetector() {
         candidate = null;
       }
       if (
-        frame.time - began >= 2 &&
+        frame.time - began >= 0.75 &&
         frame.time - lastGreeting >= 3 &&
         step > threshold &&
         deviation > threshold

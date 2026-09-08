@@ -57,6 +57,7 @@ export class NativeSynth {
     this.output.gain.value = 0;
     this.output.connect(context.destination);
     this.log("INIT");
+    this.log("CONFIG", this.configurationLog(config));
 
   }
 
@@ -65,6 +66,7 @@ export class NativeSynth {
     this.bank = bank;
     // Preserve oscillators, scheduled releases and the entire effects history.
     this.core.configure(config, bank);
+    this.log("CONFIG", this.configurationLog(config));
   }
 
   events(events: Event[]) {
@@ -81,6 +83,13 @@ export class NativeSynth {
         ...e.note, time: e.note.time + offset, sourceTime: e.note.sourceTime + offset,
       } } : {}),
     })));
+    const notes = events
+      .filter((e): e is Extract<Event, { type: "note" }> => e.type === "note")
+      .map((e) => ({ lane: e.note.lane, midi: e.note.midi,
+        delayMs: Math.round((e.note.time - e.note.sourceTime) * 1000),
+        durationMs: Math.round(e.note.duration * 1000),
+        reason: e.note.reason ?? 'preview-or-greeting', phraseStep: e.note.phraseStep }));
+    if (notes.length) console.info("[Plantia Music]", JSON.stringify({ event: "NOTES", notes }));
     this.active = true;
     this.quietSeconds = 0;
     // BLE callbacks also keep the producer alive when Android pauses UI timers.
@@ -274,6 +283,22 @@ export class NativeSynth {
       ...extra };
     if (event === "ERROR" || event === "UNDERRUN") console.warn("[Plantia PCM]", JSON.stringify(data));
     else console.info("[Plantia PCM]", JSON.stringify(data));
+  }
+
+  private configurationLog(config: Configuration) {
+    const effects = (p: Configuration["synth"]) => ({
+      delay: { on: p.delay.on, wet: p.delay.wet, rate: p.delay.rate },
+      reverb: { on: p.reverb.on, wet: p.reverb.wet, amount: p.reverb.amount },
+      chorus: { on: p.chorus.on, depth: p.chorus.depth, rate: p.chorus.rate },
+      envelope: { on: p.envelope.on, attack: p.envelope.attack, release: p.envelope.release },
+    });
+    return {
+      presets: { synth: config.synth.preset, instrument: config.instrument.preset },
+      levels: { synth: config.synthLevel, instrument: config.instrumentLevel,
+        greeting: config.greetingLevel },
+      effects: { synth: effects(config.synth), instrument: effects(config.instrument) },
+      synthMotion: config.synthMotion,
+    };
   }
 
   get diagnostics() {

@@ -42,11 +42,11 @@ struct Effects {
     size_t i=static_cast<size_t>(x);
     return double(b[i])+(double(b[(i+1)%b.size()])-b[i])*(x-i);
   }
-  std::array<double,2> process(double l,double r,const Patch& p) {
+  std::array<double,2> process(double l,double r,const Patch& p,double movement=0) {
     double dt=.07+1.1*(1-p.delayRate/100), echoL=tap(dr,dt), echoR=tap(dl,dt*1.017);
     dl[at]=l+(p.delayOn?echoL*.32:0); dr[at]=r+(p.delayOn?echoR*.32:0);
     if(p.chorusOn) {
-      phase+=(.08+p.chorusRate/100*1.12)/rate; double depth=p.depth/100;
+      phase+=(.08+p.chorusRate/100*1.12)/rate; double depth=clamp(p.depth/100*(.72+movement*.42));
       double cl=tap(dl,.018+sine(phase)*.003*depth), cr=tap(dr,.021+sine(phase+.25)*.003*depth);
       l=l*(1-depth*.35)+cl*depth*.35; r=r*(1-depth*.35)+cr*depth*.35;
     }
@@ -68,8 +68,8 @@ struct Effects {
 };
 struct Voice {
   double id=0, time=0, sourceTime=0, stop=0, forced=INF, attack=0, release=0;
-  double position=0, position2=0, increment=0, increment2=0, phase=0, phase2=.07;
-  double detuneRatio=1, frequency=0, attenuation=1, panL=0, panR=0, gain=0, color=0, pan=0;
+  double position=0, position2=0, increment=0, increment2=0, phase=0, phase2=.07, phase3=.37;
+  double detuneRatio=1, frequency=0, filterState=0, attenuation=1, panL=0, panR=0, gain=0, color=0, pan=0;
   double evolution=0, decay=0, blend=0;
   int lane=0, model=0, family=0, trace=0;
   std::array<double,8> harmonics{}; std::array<double,4> ratios{};
@@ -77,7 +77,7 @@ struct Voice {
 };
 struct Event {int type=0,lane=-1;double time=0; Voice voice; std::array<double,12> expression{};};
 class Core {
-  double rate,duck=1,greetingAt=-INF,dcL=0,dcR=0;
+  double rate,duck=1,synthDuck=1,greetingAt=-INF,instrumentAt=-INF,dcL=0,dcR=0;
   uint64_t cursor=0;
   std::array<double,3> levels{1,1,1},meters{};
   std::array<Patch,3> patches;
@@ -143,14 +143,17 @@ public:
           if(cancelled.erase(e.voice.id)==0) {
             int count=0;Voice* first=nullptr;
             for(auto& v:voices)if(v.lane==e.voice.lane&&v.forced==INF){count++;if(!first)first=&v;}
-            int limit=e.voice.lane==0?6:e.voice.lane==1?8:4;
+            int limit=e.voice.lane==0?6:e.voice.lane==1?8:6;
             if(count>=limit&&first)first->forced=t+.025;
             voices.push_back(e.voice);
             if(e.voice.lane==2)greetingAt=t;
+            if(e.voice.lane==1)instrumentAt=t;
           }
         } else if(e.type==1)target=e.expression;
         else {
-          for(auto& v:voices)if(e.lane<0||v.lane==e.lane)v.forced=std::min(v.forced,t+.15);
+          for(auto& v:voices)if(e.lane<0||v.lane==e.lane) {
+            if(v.lane==0)v.stop=std::min(v.stop,t);else v.forced=std::min(v.forced,t+.15);
+          }
           for(size_t j=atEvent;j<pending.size();j++) {
             const auto& q=pending[j];
             if(q.type==0&&q.voice.sourceTime<=e.time&&(e.lane<0||q.voice.lane==e.lane))cancelled.insert(q.voice.id);
@@ -179,29 +182,33 @@ public:
             value+=sine(age*v.frequency*v.ratios[j])*std::exp(-age*(1+j*.6)/(v.model==2?2.8:1.4))*(j?.3/(j+1):1);
         } else {
           v.phase+=v.frequency/rate;v.phase-=int(v.phase);
-          v.phase2+=v.frequency*v.detuneRatio/rate;v.phase2-=int(v.phase2);
-          double breathe=sine(age*v.evolution+v.color),decay=1/(1+age*v.decay);
+          double livingDetune=1+std::max(.002,v.detuneRatio-1)*(.85+energy*.3);
+          v.phase2+=v.frequency*livingDetune/rate;v.phase2-=int(v.phase2);
+          v.phase3+=v.frequency/(livingDetune*rate);v.phase3-=int(v.phase3);
+          double breathe=sine(age*v.evolution+v.color),decay=.35+.65/(1+age*v.decay);
           for(int j=0;j<8;j++) {
-            double band=expression[3+(j+v.trace)%9],weight=j?.6+brightness*.4+band*.55:1;
+            if(v.frequency*(j+1)>=rate*.42)continue;
+            double band=expression[3+(j+v.trace)%9],weight=j?.6+brightness*.4+band*.55:.65;
             if(v.family==1)weight*=j?decay:.8;
             else if(v.family==2)weight*=j?decay*decay:.55+decay*.45;
             else if(v.family==3)weight*=.72+.28*sine(age*v.evolution+j*.22+expression[2]*.18);
             else if(v.family==4)weight*=.86+.14*sine(age*v.evolution+j*.31);
             else if(v.family==5)weight*=j%2?.7:1+band*.25;
             else weight*=j?.84+.16*breathe:1;
-            double partial=sine(v.phase*(j+1))*(1-v.blend)+sine(v.phase2*(j+1))*v.blend;
+            double partial=sine(v.phase*(j+1))*.4+sine(v.phase2*(j+1))*.3+sine(v.phase3*(j+1))*.3;
             value+=partial*v.harmonics[j]*weight;
           }
-          value*=(.9+energy*.14+breathe*.05)*v.attenuation;
+          value*=(.78+energy*.14+breathe*.16)*std::min(1.,std::sqrt(880/v.frequency));
+          double cutoff=std::min(rate*.18,(480+v.frequency*.65+brightness*brightness*1800+energy*420)*(.82+.18*sine(age*(.035+v.evolution*.12)+v.color)));
+          v.filterState+=(value-v.filterState)*(1-std::exp(-TAU*cutoff/rate));value=v.filterState;
         }
         if(v.lane==2) {
-          double bloom=sine(age*v.frequency)*.58+sine(age*v.frequency*2)*.16,dust=0;
+          value=0;
+          constexpr double ratios[]={1,2.76,5.4,8.93},weights[]={.78,.2,.075,.025};
           for(int k=0;k<4;k++) {
-            double elapsed=age-k*.19,harmonic=k+2;
-            if(elapsed>0&&v.frequency*harmonic<rate*.43)
-              dust+=sine(elapsed*v.frequency*harmonic)*smooth(elapsed/.2)*std::exp(-elapsed/(1.05+k*.16))*.12/(1+k*.5);
+            if(v.frequency*ratios[k]<rate*.42)
+              value+=sine(age*v.frequency*ratios[k])*std::exp(-age/(.85/(1+k*1.5)))*weights[k];
           }
-          value=value*.3+bloom*std::exp(-age/2.1)+dust;
         }
         value*=envelope*v.gain;
         if(v.lane==0) {
@@ -209,11 +216,13 @@ public:
           left[0]+=value*v.panL*(1-drift);right[0]+=value*v.panR*(1+drift);
         } else {left[v.lane]+=value*v.panL;right[v.lane]+=value*v.panR;}
       }
-      double duckTarget=t-greetingAt<1.8?.48:1;
+      double duckTarget=t-greetingAt<.65&&levels[2]>0?.85:1;
       duck+=(duckTarget-duck)*(duckTarget<duck?duckAttack:duckRelease);
+      double synthDuckTarget=t-instrumentAt<.32&&levels[1]>0?.62:1;
+      synthDuck+=(synthDuckTarget-synthDuck)*(synthDuckTarget<synthDuck?duckAttack:duckRelease);
       double outL=0,outR=0;
       for(int j=0;j<3;j++) {
-        auto b=buses[j].process(left[j],right[j],patches[j]);double gain=levels[j]*(j<2?duck:1);
+        auto b=buses[j].process(left[j],right[j],patches[j],j==0?energy:0);double gain=levels[j]*(j<2?duck:1)*(j==0?synthDuck:1);
         outL+=b[0]*gain;outR+=b[1]*gain;
         maxima[j]=std::max(maxima[j],std::max(std::abs(b[0]*gain),std::abs(b[1]*gain)));
       }

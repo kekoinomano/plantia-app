@@ -30,7 +30,7 @@ export const SignalChart = memo(function SignalChart({ points, live, waiting }: 
   const clock = useSharedValue(0);
   const active = useSharedValue(AppState.currentState === "active");
   const running = useSharedValue(false);
-  const scale = useRef<{ low: number; high: number; at: number } | null>(null);
+  const scale = useRef<{ low: number; high: number } | null>(null);
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (state) => {
@@ -58,20 +58,25 @@ export const SignalChart = memo(function SignalChart({ points, live, waiting }: 
       shape.value = EMPTY;
       return;
     }
-    const recent = data.filter((point) => point.time >= now - 1500);
-    const values = (recent.length >= 6 ? recent : data).map((point) => point.value).sort((a, b) => a - b);
-    const trim = values.length >= 6 ? Math.max(1, Math.floor(values.length * 0.1)) : 0;
-    const min = values[trim], max = values[values.length - 1 - trim];
-    const padding = Math.max(2, (max - min) * 0.2);
+    // Use actual visible extrema, including peaks previously discarded by trimming.
+    const visibleEnd = now - REVEAL_DELAY_MS;
+    const values = data.filter((point) =>
+      point.time >= visibleEnd - WINDOW_MS && point.time <= visibleEnd,
+    ).map((point) => point.value);
+    if (!values.length) return;
+    const min = Math.min(...values), max = Math.max(...values);
+    // Padding depends on variation, never on the absolute sensor baseline.
+    const padding = Math.max(0.000001, (max - min) * 0.12);
     const previous = scale.current;
-    // Slowly follow amplitude, independently of packet count.
-    const blend = previous ? 1 - Math.exp(-(now - previous.at) / 450) : 1;
-    const low = previous ? previous.low + (min - padding - previous.low) * blend : min - padding;
-    const high = previous ? previous.high + (max + padding - previous.high) * blend : max + padding;
-    scale.current = { low, high, at: now };
+    // After initialization, the ONLY rescale trigger is less than 50% height.
+    // No periodic recentering, expansion or ongoing animation of the Y axis.
+    if (!previous || max - min < (previous.high - previous.low) * 0.5) {
+      scale.current = { low: min - padding, high: max + padding };
+    }
+    const { low, high } = scale.current!;
     const vertices = data.map((point) => ({
       x: WIDTH - (now - REVEAL_DELAY_MS - point.time) * WIDTH / WINDOW_MS,
-      y: Math.max(10, Math.min(HEIGHT - 10, HEIGHT - 14 - (point.value - low) / Math.max(1, high - low) * (HEIGHT - 28))),
+      y: Math.max(10, Math.min(HEIGHT - 10, HEIGHT - 14 - (point.value - low) / Math.max(0.000001, high - low) * (HEIGHT - 28))),
       time: point.time,
     }));
     let path = "";

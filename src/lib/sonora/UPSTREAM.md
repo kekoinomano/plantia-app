@@ -37,22 +37,30 @@ Al inicio del directo se añade un margen de 120 ms y se transforma el reloj de 
 
 ## Presets y eventos exportables
 
-`presets.json` contiene las 22 escalas, los 37 presets, los 20 diseños de synth (`synthVoices`), cuatro afinaciones rápidas y configuración inicial. `synth-voices.ts` define espectros, evolución, registros y fraseo; las octavas iniciales de synth se revisaron para separar registros, conservando los límites editados por el usuario. El campo `version: 1` identifica el formato. Los pitch classes usan C=0 … B=11. MIDI 60 es C4. Una octava N cubre las notas desde `12*(N+1)`. Las octavas permitidas van de 1 a 6.
+`presets.json` contiene las 22 escalas, los 37 presets, los 20 diseños de synth (`synthVoices`), cuatro afinaciones rápidas y configuración inicial. `synth-voices.ts` define espectros, evolución y registros; las octavas iniciales de synth se revisaron para separar registros, conservando los límites editados por el usuario. El synth crea díadas estables dentro de su propia escala y las renueva con fundidos lentos: `synthMotion.transition` controla el fundido y `synthMotion.stability` el tiempo entre capas. El campo `version: 1` identifica el formato. Los pitch classes usan C=0 … B=11. MIDI 60 es C4. Una octava N cubre las notas desde `12*(N+1)`. Las octavas permitidas van de 1 a 6.
 
 Los eventos `{type: "expression", time, expression: {brightness, energy, direction, bands}}` actualizan también el timbre de las notas sostenidas; el DSP suaviza estos valores durante 180 ms.
 
-Un evento de nota tiene `{type:'note', time, note:{id,time,sourceTime,source,midi,velocity,duration,lane,patch,color,pan}}`. `source` es la secuencia de la ventana que provocó la nota; las pruebas manuales usan -1. `lane` es `synth`, `instrument` o `greeting`. Cada nota guarda su preset completo para que un cambio posterior no reescriba el pasado. Un evento `{type:'release',time,lane?}` libera voces y cancela respuestas pendientes causadas antes de ese instante. `Composer.configure` libera synth/instrument; el saludo sigue su curso.
+Un evento de nota tiene `{type:'note', time, note:{id,time,sourceTime,source,midi,velocity,duration,lane,patch,color,pan,fade?}}`. `source` es la secuencia de la ventana que provocó la nota; las pruebas manuales usan -1. `lane` es `synth`, `instrument` o `greeting`. Cada nota guarda su preset completo para que un cambio posterior no reescriba el pasado; `fade` permite que las capas del synth usen ataques y liberaciones ambientales. Un evento `{type:'release',time,lane?}` libera voces y cancela respuestas pendientes causadas antes de ese instante; el synth usa su liberación natural. `Composer.configure` libera synth/instrument; el saludo sigue su curso.
 
-`AudioCore.configure(config, bank?)` cambia ganancias y efectos. La memoria de reverberación se conserva. Los cambios de parámetros son por bloque; no hay automatización de curvas de controles ni historial de presets grabado en la base de datos. `Composer.audition(lane,time)` genera una prueba explícita sin lecturas, con notas de la escala elegida.
+`AudioCore.configure(config, bank?)` cambia ganancias y efectos. La memoria interna de reverberación se conserva, pero no se mezcla en la salida mientras el efecto está apagado. Los cambios de parámetros son por bloque; no hay historial de presets grabado en la base de datos. `Composer.audition(lane,time)` genera una prueba explícita sin lecturas: el instrumento articula tres notas y el synth abre una díada ambiental.
 
 ## Unidades de DSP
+
+### Fraseo guiado por la señal
+
+El instrumento conserva un motivo de cuatro notas y proporciones rítmicas extraídas del perfil ordenado. Cierra la frase con una nota más larga y una pausa; modifica una célula del motivo por repetición según las nuevas lecturas. Las duraciones son compuertas de reproducción: no alargan artificialmente la resonancia de una muestra percutiva.
+
+El synth renueva alternativamente dos capas, leyendo distintas posiciones del perfil para variar sus alturas e intervalos dentro de su escala independiente. El filtro respira lentamente sin modular la afinación. La misma secuencia de frames y configuración produce los mismos eventos; esto caracteriza la señal recibida, no identifica biológicamente una especie. Cambiar los volúmenes no reinicia las frases y los buses silenciados no provocan ducking.
+
+Los logs `NOTES` incluyen `reason` y `phraseStep` para explicar el papel de cada nota además de su duración.
 
 Los porcentajes son controles normalizados propios de Sonora. La tabla original no especificaba tiempos físicos; no se afirma equivalencia sonora con otro sintetizador.
 
 - Delay: wet 0–100 es mezcla seca/húmeda; rate 0–100 da `0,07 + 1,1*(1-rate/100)` segundos. Realimentación 0,32, cruce estéreo.
 - Reverb: wet 0–100 mezcla; amount da realimentación `0,48 + 0,4*amount/100` de cuatro líneas amortiguadas. Reflexiones tempranas conservan ataques incluso al 100 % wet.
-- Chorus: depth controla mezcla y hasta 3 ms de modulación alrededor de 18/21 ms; rate va de 0,08 a 1,2 Hz.
-- Envelope: attack da `0,004 + máximo*(attack/100)^2` segundos (máximo 1,3 synth y 0,45 instrumento); release da `0,06 + 3,5*(release/100)^2` segundos. Curva suave. Off conserva el ataque y la liberación naturales mínimos para evitar clics; no es una compuerta instantánea.
+- Chorus: depth controla mezcla y hasta 3 ms de modulación alrededor de 18/21 ms; rate va de 0,08 a 1,2 Hz. En el bus del synth, la energía de la señal modula suavemente esa profundidad alrededor del valor elegido.
+- Envelope: en el instrumento moldea cada nota. En el synth pondera la aparición y el desvanecimiento sobre el tiempo de fundido ambiental, con un filtro paso bajo que evoluciona lentamente con la señal. Off conserva los mínimos naturales para evitar clics; no es una compuerta instantánea.
 - Tuning: A4 en Hz, entre 392 y 494. Velocity usa Center y Range (0–127), modulados por dirección, movimiento y detalle. Cero produce silencio en la voz elegida. El saludo usa intensidad propia.
 - Tres buses, máximos de 6/8/4 voces con relevo de 25 ms, búferes de efectos acotados, tabla seno compartida. Las muestras se interpolan linealmente; no hay modelos neuronales ni grandes soundfonts en memoria.
 

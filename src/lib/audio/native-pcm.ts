@@ -52,8 +52,8 @@ export class NativePcmCore {
     for (const s of this.samples.keys()) if (!retained.has(s)) this.samples.delete(s);
     this.module.retain(this.id, [...this.samples.values()]);
     const greeting: Patch = { ...config.instrument,
-      delay: { on: true, wet: 12, rate: 77 }, chorus: { on: true, depth: 25, rate: 13 },
-      reverb: { on: true, wet: 42, amount: 76 } };
+      delay: { on: false, wet: 0, rate: 77 }, chorus: { on: true, depth: 25, rate: 13 },
+      reverb: { on: true, wet: 20, amount: 32 } };
     this.module.configure(this.id, [
       ...patch(config.synthLevel, config.synth), ...patch(config.instrumentLevel, config.instrument),
       ...patch(config.greetingLevel, greeting),
