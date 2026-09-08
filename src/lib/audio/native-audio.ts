@@ -10,7 +10,7 @@ import { NativeSynth } from "./native-synth";
 
 type Settings = { config: Configuration; bank: Bank };
 
-/** BLE drives the existing composer; the native graph plays complete notes. */
+/** BLE drives the composer; a buffered PCM transport plays the complete Sonora DSP. */
 export class NativeAudio {
   private context: AudioContext | null = null;
   private synth: NativeSynth | null = null;
@@ -34,7 +34,10 @@ export class NativeAudio {
   ) {}
 
   start(config: Configuration) {
-    this.starting = this.begin(config);
+    this.starting = this.begin(config).catch((error) => {
+      console.error("[Plantia PCM] INIT_ERROR", error instanceof Error ? error.message : String(error));
+      throw error;
+    });
     return this.starting;
   }
 
@@ -44,8 +47,7 @@ export class NativeAudio {
       iosMode: "default",
       iosOptions: [],
     });
-    // Use the hardware's preferred rate, including on Android. There is no
-    // downsampled JS renderer or resampled transport queue anymore.
+    // Render and enqueue at the hardware rate: no transport resampling.
     const context = new AudioContext();
     this.context = context;
     await context.suspend();
@@ -118,7 +120,16 @@ export class NativeAudio {
     if (this.closed || version !== this.configureVersion) return;
     this.currentSettings = { config, bank };
     if (!this.synth) {
-      this.synth = new NativeSynth(this.context, config, bank);
+      this.synth = new NativeSynth(this.context, config, bank, (error) => {
+        void this.setPlaying(false).catch(this.onError);
+        this.onError(error);
+      }, () => {
+        if (!this.context || !this.playing) return;
+        const now = this.context.currentTime;
+        this.signal?.advance(now * 1000);
+        this.composer?.advance(now);
+        this.synth?.events(this.composer?.drain() ?? []);
+      });
       this.resetComposition();
     } else {
       this.composer?.configure(config, this.context.currentTime);
@@ -136,8 +147,8 @@ export class NativeAudio {
     const now = this.context.currentTime;
     try {
       this.synth?.activity(now + GAP_SECONDS);
-      // Audio and analysis share the native clock; screen refresh and JS timers
-      // do not drive playback. Invalid/missing data lets the native fade finish.
+      // Timestamp analysis with the hardware clock. The PCM adapter maps whole
+      // event batches to the next unwritten samples, preserving musical offsets.
       this.signal?.push({ ...packet, elapsed_ms: now * 1000 });
     } catch (error) {
       void this.setPlaying(false).catch(this.onError);

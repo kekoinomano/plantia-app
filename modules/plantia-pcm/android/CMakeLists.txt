@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.18)
+project(plantia_pcm)
+add_library(plantia_pcm SHARED src/main/cpp/Bridge.cpp)
+target_include_directories(plantia_pcm PRIVATE ../cpp)
+target_compile_features(plantia_pcm PRIVATE cxx_std_17)
+target_compile_options(plantia_pcm PRIVATE -O3 -ffp-contract=off)

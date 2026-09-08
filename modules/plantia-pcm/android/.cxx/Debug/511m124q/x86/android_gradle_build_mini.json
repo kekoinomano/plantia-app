@@ -1,0 +1,27 @@
+{
+  "buildFiles": [
+    "/Users/sergio/Developer/plantia-app/modules/plantia-pcm/android/CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "/Users/sergio/Library/Android/sdk/cmake/3.22.1/bin/ninja",
+      "-C",
+      "/Users/sergio/Developer/plantia-app/modules/plantia-pcm/android/.cxx/Debug/511m124q/x86",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "/Users/sergio/Library/Android/sdk/cmake/3.22.1/bin/ninja",
+    "-C",
+    "/Users/sergio/Developer/plantia-app/modules/plantia-pcm/android/.cxx/Debug/511m124q/x86",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "plantia_pcm::@6890427a1f51a3e7e1df": {
+      "artifactName": "plantia_pcm",
+      "abi": "x86",
+      "output": "/Users/sergio/Developer/plantia-app/modules/plantia-pcm/android/build/intermediates/cxx/Debug/511m124q/obj/x86/libplantia_pcm.so",
+      "runtimeFiles": []
+    }
+  }
+}

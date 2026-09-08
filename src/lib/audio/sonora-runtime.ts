@@ -1157,6 +1157,56 @@ var Sonora = (() => {
       return this.output;
     }
   };
+  function prepareVoice(rate, bank, n) {
+    const sampleFor = (program2, midi) => {
+      var _a, _b;
+      return (_b = (_a = program2 ? bank[program2] : void 0) == null ? void 0 : _a.reduce((a, b) => Math.abs(a.midi - midi) <= Math.abs(b.midi - midi) ? a : b)) != null ? _b : null;
+    };
+    if (n.velocity <= 0) return;
+    const desc = preset(n.patch.preset), isGreeting = n.lane === "greeting";
+    const program = isGreeting ? "orchestral_harp" : desc.program;
+    const sample = sampleFor(
+      program === "choir_organ" ? "choir_aahs" : program,
+      n.midi
+    ), sample2 = program === "choir_organ" ? sampleFor("church_organ", n.midi) : null;
+    if (n.lane !== "synth" && !sample && !desc.model) return;
+    const frequency = n.patch.tuning * __pow(2, (n.midi - 69) / 12), flavor = desc.flavor;
+    const design = synthVoice(n.patch.preset);
+    const harmonics = design.harmonics.map(
+      (x, i) => frequency * (i + 1) < rate * 0.42 ? x : 0
+    );
+    const normalization = Math.min(
+      1.6,
+      0.96 / Math.sqrt(harmonics.reduce((sum, x) => sum + x * x, 0))
+    );
+    for (let i = 0; i < harmonics.length; i++) harmonics[i] *= normalization;
+    return {
+      note: n,
+      sample,
+      sample2,
+      position: 0,
+      position2: 0,
+      increment: sample ? sample.rate / rate * __pow(2, (n.midi - sample.midi) / 12) * n.patch.tuning / 440 : 0,
+      increment2: sample2 ? sample2.rate / rate * __pow(2, (n.midi - sample2.midi) / 12) * n.patch.tuning / 440 : 0,
+      phase: 0,
+      phase2: 0.07,
+      detuneRatio: __pow(2, design.detune / 1200),
+      design,
+      frequency,
+      attenuation: Math.min(1, Math.sqrt(880 / frequency)),
+      harmonics,
+      ratios: desc.model === "bowl" ? [1, 2.71, 4.05, 5.43] : [1, 2, 3, 4],
+      attack: isGreeting ? 0.14 : n.patch.envelope.on ? 4e-3 + (n.lane === "synth" ? 1.3 : 0.45) * __pow(n.patch.envelope.attack / 100, 2) : n.lane === "synth" ? 0.08 : 4e-3,
+      release: isGreeting ? 2.8 : n.patch.envelope.on ? 0.06 + 3.5 * __pow(n.patch.envelope.release / 100, 2) : 0.35,
+      stop: n.time + n.duration,
+      forced: Infinity,
+      panL: Math.sqrt((1 - clamp(n.pan, -1, 1)) / 2),
+      panR: Math.sqrt((1 + clamp(n.pan, -1, 1)) / 2),
+      flavor,
+      model: desc.model,
+      gain: (isGreeting ? 0.34 : n.lane === "synth" ? 0.17 : 0.2) * __pow(n.velocity / 100, 1.15)
+    };
+  }
   var AudioCore = class {
     constructor(rate, config = defaultConfiguration(), bank = {}) {
       __publicField(this, "config");
@@ -1197,64 +1247,16 @@ var Sonora = (() => {
       this.pending.push(...events);
       this.pending.sort((a, b) => a.time - b.time);
     }
-    sampleFor(program, midi) {
-      var _a;
-      const options = program ? this.bank[program] : void 0;
-      return (_a = options == null ? void 0 : options.reduce(
-        (a, b) => Math.abs(a.midi - midi) <= Math.abs(b.midi - midi) ? a : b
-      )) != null ? _a : null;
-    }
     start(n) {
-      if (n.velocity <= 0) return;
-      const desc = preset(n.patch.preset), isGreeting = n.lane === "greeting";
-      const program = isGreeting ? "orchestral_harp" : desc.program;
-      const sample = this.sampleFor(
-        program === "choir_organ" ? "choir_aahs" : program,
-        n.midi
-      ), sample2 = program === "choir_organ" ? this.sampleFor("church_organ", n.midi) : null;
-      if (n.lane !== "synth" && !sample && !desc.model) return;
+      const voice = prepareVoice(this.rate, this.bank, n);
+      if (!voice) return;
       const same = this.voices.filter(
         (v) => v.note.lane === n.lane && v.forced === Infinity
       );
       const limit2 = n.lane === "synth" ? 6 : n.lane === "instrument" ? 8 : 4;
       if (same.length >= limit2) same[0].forced = this.time + 0.025;
-      const frequency = n.patch.tuning * __pow(2, (n.midi - 69) / 12), flavor = desc.flavor;
-      const design = synthVoice(n.patch.preset);
-      const harmonics = design.harmonics.map(
-        (x, i) => frequency * (i + 1) < this.rate * 0.42 ? x : 0
-      );
-      const normalization = Math.min(
-        1.6,
-        0.96 / Math.sqrt(harmonics.reduce((sum, x) => sum + x * x, 0))
-      );
-      for (let i = 0; i < harmonics.length; i++) harmonics[i] *= normalization;
-      this.voices.push({
-        note: n,
-        sample,
-        sample2,
-        position: 0,
-        position2: 0,
-        increment: sample ? sample.rate / this.rate * __pow(2, (n.midi - sample.midi) / 12) * n.patch.tuning / 440 : 0,
-        increment2: sample2 ? sample2.rate / this.rate * __pow(2, (n.midi - sample2.midi) / 12) * n.patch.tuning / 440 : 0,
-        phase: 0,
-        phase2: 0.07,
-        detuneRatio: __pow(2, design.detune / 1200),
-        design,
-        frequency,
-        attenuation: Math.min(1, Math.sqrt(880 / frequency)),
-        harmonics,
-        ratios: desc.model === "bowl" ? [1, 2.71, 4.05, 5.43] : [1, 2, 3, 4],
-        attack: isGreeting ? 0.14 : n.patch.envelope.on ? 4e-3 + (n.lane === "synth" ? 1.3 : 0.45) * __pow(n.patch.envelope.attack / 100, 2) : n.lane === "synth" ? 0.08 : 4e-3,
-        release: isGreeting ? 2.8 : n.patch.envelope.on ? 0.06 + 3.5 * __pow(n.patch.envelope.release / 100, 2) : 0.35,
-        stop: n.time + n.duration,
-        forced: Infinity,
-        panL: Math.sqrt((1 - clamp(n.pan, -1, 1)) / 2),
-        panR: Math.sqrt((1 + clamp(n.pan, -1, 1)) / 2),
-        flavor,
-        model: desc.model,
-        gain: (isGreeting ? 0.34 : n.lane === "synth" ? 0.17 : 0.2) * __pow(n.velocity / 100, 1.15)
-      });
-      if (isGreeting) this.greetingAt = this.time;
+      this.voices.push(voice);
+      if (n.lane === "greeting") this.greetingAt = this.time;
     }
     render(l, r) {
       let at = 0, maxS = 0, maxI = 0, maxG = 0;

@@ -1,0 +1,27 @@
+{
+  "buildFiles": [
+    "/Users/sergio/Developer/plantia-app/modules/plantia-pcm/android/CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "/Users/sergio/Library/Android/sdk/cmake/3.22.1/bin/ninja",
+      "-C",
+      "/Users/sergio/Developer/plantia-app/modules/plantia-pcm/android/.cxx/Debug/511m124q/armeabi-v7a",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "/Users/sergio/Library/Android/sdk/cmake/3.22.1/bin/ninja",
+    "-C",
+    "/Users/sergio/Developer/plantia-app/modules/plantia-pcm/android/.cxx/Debug/511m124q/armeabi-v7a",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "plantia_pcm::@6890427a1f51a3e7e1df": {
+      "artifactName": "plantia_pcm",
+      "abi": "armeabi-v7a",
+      "output": "/Users/sergio/Developer/plantia-app/modules/plantia-pcm/android/build/intermediates/cxx/Debug/511m124q/obj/armeabi-v7a/libplantia_pcm.so",
+      "runtimeFiles": []
+    }
+  }
+}

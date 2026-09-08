@@ -1,0 +1,4 @@
+/Users/sergio/Library/Android/sdk/cmake/3.22.1/bin/ninja \
+  -C \
+  /Users/sergio/Developer/plantia-app/modules/plantia-pcm/android/.cxx/Debug/511m124q/armeabi-v7a \
+  plantia_pcm

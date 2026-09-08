@@ -1,0 +1,1 @@
+{"platforms":["apple","android"],"apple":{"modules":["PlantiaPcmModule"],"podspecPath":"PlantiaPcm.podspec"},"android":{"modules":["expo.modules.plantiapcm.PlantiaPcmModule"]}}

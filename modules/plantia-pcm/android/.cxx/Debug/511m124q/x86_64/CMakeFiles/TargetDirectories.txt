@@ -1,0 +1,3 @@
+/Users/sergio/Developer/plantia-app/modules/plantia-pcm/android/.cxx/Debug/511m124q/x86_64/CMakeFiles/plantia_pcm.dir
+/Users/sergio/Developer/plantia-app/modules/plantia-pcm/android/.cxx/Debug/511m124q/x86_64/CMakeFiles/edit_cache.dir
+/Users/sergio/Developer/plantia-app/modules/plantia-pcm/android/.cxx/Debug/511m124q/x86_64/CMakeFiles/rebuild_cache.dir

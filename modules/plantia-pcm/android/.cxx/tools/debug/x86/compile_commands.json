@@ -1,0 +1,7 @@
+[
+{
+  "directory": "/Users/sergio/Developer/plantia-app/modules/plantia-pcm/android/.cxx/Debug/511m124q/x86",
+  "command": "/Users/sergio/Library/Android/sdk/ndk/27.1.12297006/toolchains/llvm/prebuilt/darwin-x86_64/bin/clang++ --target=i686-none-linux-android24 --sysroot=/Users/sergio/Library/Android/sdk/ndk/27.1.12297006/toolchains/llvm/prebuilt/darwin-x86_64/sysroot -Dplantia_pcm_EXPORTS -I/Users/sergio/Developer/plantia-app/modules/plantia-pcm/android/../cpp -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -std=c++17 -O3 -ffp-contract=off -fno-limit-debug-info  -fPIC -O3 -ffp-contract=off -o CMakeFiles/plantia_pcm.dir/src/main/cpp/Bridge.cpp.o -c /Users/sergio/Developer/plantia-app/modules/plantia-pcm/android/src/main/cpp/Bridge.cpp",
+  "file": "/Users/sergio/Developer/plantia-app/modules/plantia-pcm/android/src/main/cpp/Bridge.cpp"
+}
+]

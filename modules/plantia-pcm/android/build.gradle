@@ -1,0 +1,19 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+group = 'expo.modules.plantiapcm'
+version = '1.0.0'
+android {
+  namespace 'expo.modules.plantiapcm'
+  if (rootProject.hasProperty('ndkVersion')) {
+    ndkVersion rootProject.ext.ndkVersion
+  }
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+    consumerProguardFiles "consumer-rules.pro"
+    externalNativeBuild { cmake { cppFlags '-std=c++17 -O3 -ffp-contract=off' } }
+  }
+  externalNativeBuild { cmake { path 'CMakeLists.txt' } }
+}
