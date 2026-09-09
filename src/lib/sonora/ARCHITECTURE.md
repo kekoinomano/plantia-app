@@ -1,5 +1,9 @@
 # Moods, rules and plant expression
 
+For the detailed Spanish musical specification, formulas, current limitations and
+agent extension guide, see [SOUND_BIBLE.md](../../../SOUND_BIBLE.md). Keep it in
+sync when changing a mood. This file is the short architecture overview.
+
 - `presets.ts`: sound choices and user-owned settings. `slots` is the canonical
   sound layout: stable ID, kind, patch, level and optional synth motion per slot.
   Old two-voice settings migrate into Organic's atmosphere/melody slots. Legacy
@@ -30,8 +34,9 @@
   notes in a burst. Six seconds without data release the music and clear intent.
   Note IDs remain unique across strategy changes and reconnect gaps.
 - `modulation.ts`: bounded expression from the latest intent and mood. User patches
-  are never overwritten. The response control scales timbre/space modulation, not
-  the plant's role in pitch and rhythm. Zero returns modulation to neutral smoothly.
+  are never overwritten. The response control scales timbre/space modulation and
+  the ensemble home-register offset, not all plant-driven pitch/rhythm/articulation.
+  Zero returns continuous expression to neutral smoothly.
 - `dsp.ts` and `modules/plantia-pcm/cpp/Sonora.h`: matching audio backends. Expression
   is smoothed in the audio loop (default 400 ms). Space changes reverb by at most
   eight percentage points and delay by four in Organic; disabled effects stay off.
