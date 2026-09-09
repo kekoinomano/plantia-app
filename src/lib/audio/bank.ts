@@ -1,6 +1,6 @@
 import { Asset } from "expo-asset";
 import type { AudioContext } from "react-native-audio-api";
-import { preset, type Configuration } from "../sonora/presets";
+import { preset, soundSlots, type Configuration } from "../sonora/presets";
 import type { Bank, Sample } from "../sonora/dsp";
 import { sampleAssets } from "./sample-assets";
 
@@ -8,10 +8,10 @@ export class SampleBank {
   private cache = new Map<string, Promise<Sample[]>>();
 
   async load(config: Configuration, context: AudioContext): Promise<Bank> {
-    const program = preset(config.instrument.preset).program;
-    const needed = new Set([
-      ...(program === "choir_organ" ? ["choir_aahs", "church_organ"] : program ? [program] : []),
-    ]);
+    const needed = new Set(soundSlots(config).flatMap((slot) => {
+      const program = preset(slot.patch.preset).program;
+      return program === "choir_organ" ? ["choir_aahs", "church_organ"] : program ? [program] : [];
+    }));
     const bank: Bank = {};
     await Promise.all(
       [...needed].map(async (name) => {

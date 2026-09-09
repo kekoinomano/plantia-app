@@ -71,7 +71,7 @@ struct Voice {
   double position=0, position2=0, increment=0, increment2=0, phase=0, phase2=.07, phase3=.37;
   double detuneRatio=1, frequency=0, filterState=0, attenuation=1, panL=0, panR=0, gain=0, color=0, pan=0;
   double evolution=0, decay=0, blend=0;
-  int lane=0, model=0, family=0, trace=0;
+  int lane=0, kind=0, model=0, family=0, trace=0;
   std::array<double,8> harmonics{}; std::array<double,4> ratios{};
   std::shared_ptr<std::vector<float>> sample, sample2;
 };
@@ -79,16 +79,18 @@ struct Event {int type=0,lane=-1;double time=0,smoothing=.4; Voice voice; std::a
 class Core {
   double rate,duck=1,synthDuck=1,greetingAt=-INF,instrumentAt=-INF,dcL=0,dcR=0,smoothing=.4;
   uint64_t cursor=0;
-  std::array<double,3> levels{1,1,1},meters{};
-  std::array<Patch,3> patches;
-  std::array<Effects,3> buses;
+  std::vector<double> levels;
+  std::vector<int> kinds;
+  std::array<double,3> meters{};
+  std::vector<Patch> patches;
+  std::vector<Effects> buses;
   std::array<double,13> expression{.35,.3,0,.33,.33,.33,.33,.33,.33,.33,.33,.33,0};
   std::array<double,13> target=expression;
   std::unordered_map<int,std::shared_ptr<std::vector<float>>> samples;
   std::vector<Voice> voices; std::vector<Event> pending;
   std::unordered_set<double> cancelled;
 public:
-  explicit Core(double r):rate(r),buses{Effects(r),Effects(r),Effects(r)} {
+  explicit Core(double r):rate(r) {
     if(!std::isfinite(r)||r<8000||r>96000)throw std::invalid_argument("Invalid sample rate");
   }
   double time() const {return double(cursor)/rate;}
@@ -104,8 +106,23 @@ public:
     }
   }
   void configure(const double* p,size_t n) {
-    if(n!=30)throw std::invalid_argument("Invalid configuration");
-    for(int j=0;j<3;j++) {size_t o=j*10;levels[j]=p[o];patches[j]={p[o+1],p[o+2],p[o+3],p[o+4],p[o+5],p[o+6],p[o+7],p[o+8],p[o+9]};}
+    const bool legacy=n==30;
+    if(!legacy&&(n<12||(n-1)%11))throw std::invalid_argument("Invalid configuration");
+    size_t count=legacy?3:(n-1)/11;
+    if(count>9)throw std::invalid_argument("Too many sound slots");
+    bool reset=legacy?buses.size()!=count:p[0]!=0||buses.size()!=count;
+    if(reset) {
+      voices.clear();pending.clear();cancelled.clear();buses.clear();
+      for(size_t j=0;j<count;j++)buses.emplace_back(rate);
+      duck=synthDuck=1;greetingAt=instrumentAt=-INF;
+    }
+    levels.resize(count);kinds.resize(count);patches.resize(count);
+    for(size_t j=0;j<count;j++) {
+      size_t o=legacy?j*10:1+j*11+1;
+      kinds[j]=legacy?int(j):int(p[o-1]);
+      if(kinds[j]<0||kinds[j]>2)throw std::invalid_argument("Invalid channel kind");
+      levels[j]=p[o];patches[j]={p[o+1],p[o+2],p[o+3],p[o+4],p[o+5],p[o+6],p[o+7],p[o+8],p[o+9]};
+    }
   }
   void schedule(const double* p,size_t n) {
     if(n<2)throw std::invalid_argument("Invalid event");
@@ -121,7 +138,8 @@ public:
       for(int j=0;j<8;j++)v.harmonics[j]=p[27+j];
       for(int j=0;j<4;j++)v.ratios[j]=p[35+j];
       v.phase=p[39];v.phase2=p[40];
-      if(v.lane<0||v.lane>2)throw std::invalid_argument("Invalid lane");
+      if(v.lane<0||size_t(v.lane)>=kinds.size())throw std::invalid_argument("Invalid lane");
+      v.kind=kinds[v.lane];
     } else if(e.type==1) {
       if(n!=14&&n!=16)throw std::invalid_argument("Invalid expression");
       std::copy(p+2,p+14,e.expression.begin());
@@ -144,16 +162,16 @@ public:
           if(cancelled.erase(e.voice.id)==0) {
             int count=0;Voice* first=nullptr;
             for(auto& v:voices)if(v.lane==e.voice.lane&&v.forced==INF){count++;if(!first)first=&v;}
-            int limit=e.voice.lane==0?6:e.voice.lane==1?8:6;
+            int limit=e.voice.kind==0?6:e.voice.kind==1?8:6;
             if(count>=limit&&first)first->forced=t+.025;
             voices.push_back(e.voice);
-            if(e.voice.lane==2)greetingAt=t;
-            if(e.voice.lane==1)instrumentAt=t;
+            if(e.voice.kind==2)greetingAt=t;
+            if(e.voice.kind==1&&levels[e.voice.lane]>0)instrumentAt=t;
           }
         } else if(e.type==1){target=e.expression;smoothing=e.smoothing;slew=1-std::exp(-1/(smoothing*rate));}
         else {
           for(auto& v:voices)if(e.lane<0||v.lane==e.lane) {
-            if(v.lane==0)v.stop=std::min(v.stop,t);else v.forced=std::min(v.forced,t+.15);
+            if(v.kind==0)v.stop=std::min(v.stop,t);else v.forced=std::min(v.forced,t+.15);
           }
           for(size_t j=atEvent;j<pending.size();j++) {
             const auto& q=pending[j];
@@ -163,7 +181,7 @@ public:
       }
       for(int j=0;j<13;j++)expression[j]+=(target[j]-expression[j])*slew;
       double brightness=clamp(expression[0]),energy=clamp(expression[1]);
-      std::array<double,3> left{},right{};
+      std::array<double,9> left{},right{};
       for(auto& v:voices) {
         double age=t-v.time;
         if(t>std::min(v.stop+v.release,v.forced))continue;
@@ -204,7 +222,7 @@ public:
           v.filterState+=(value-v.filterState)*(1-std::exp(-TAU*cutoff/rate));value=v.filterState;
         }
         /* Alternative wind-chime timbre (inactive).
-        if(v.lane==2) {
+        if(v.kind==2) {
           value=0;
           constexpr double ratios[]={1,2.76,5.4,8.93},weights[]={.65,.26,.1,.04};
           for(int k=0;k<4;k++) {
@@ -214,20 +232,24 @@ public:
         }
         */
         value*=envelope*v.gain;
-        if(v.lane==0) {
+        if(v.kind==0) {
           double drift=expression[2]*.13+sine(age*.08+v.pan)*.05;
-          left[0]+=value*v.panL*(1-drift);right[0]+=value*v.panR*(1+drift);
+          left[v.lane]+=value*v.panL*(1-drift);right[v.lane]+=value*v.panR*(1+drift);
         } else {left[v.lane]+=value*v.panL;right[v.lane]+=value*v.panR;}
       }
-      double duckTarget=t-greetingAt<.65&&levels[2]>0?.85:1;
+      double duckTarget=t-greetingAt<.65&&!levels.empty()&&levels.back()>0?.85:1;
       duck+=(duckTarget-duck)*(duckTarget<duck?duckAttack:duckRelease);
-      double synthDuckTarget=t-instrumentAt<.32&&levels[1]>0?.62:1;
+      bool audibleInstrument=false;
+      for(size_t j=0;j<levels.size();j++)if(kinds[j]==1&&levels[j]>0)audibleInstrument=true;
+      double synthDuckTarget=t-instrumentAt<.32&&audibleInstrument?.62:1;
       synthDuck+=(synthDuckTarget-synthDuck)*(synthDuckTarget<synthDuck?duckAttack:duckRelease);
       double outL=0,outR=0;
-      for(int j=0;j<3;j++) {
-        auto b=buses[j].process(left[j],right[j],patches[j],j==0?energy:0,j<2?expression[12]:0);double gain=levels[j]*(j<2?duck:1)*(j==0?synthDuck:1);
+      for(size_t j=0;j<levels.size();j++) {
+        int kind=kinds[j];
+        auto b=buses[j].process(left[j],right[j],patches[j],kind==0?energy:0,kind<2?expression[12]:0);
+        double gain=levels[j]*(kind<2?duck:1)*(kind==0?synthDuck:1);
         outL+=b[0]*gain;outR+=b[1]*gain;
-        maxima[j]=std::max(maxima[j],std::max(std::abs(b[0]*gain),std::abs(b[1]*gain)));
+        maxima[kind]=std::max(maxima[kind],std::max(std::abs(b[0]*gain),std::abs(b[1]*gain)));
       }
       dcL+=(outL-dcL)*dc;dcR+=(outR-dcR)*dc;
       l[i]=std::tanh((outL-dcL)*4.125)*.9;r[i]=std::tanh((outR-dcR)*4.125)*.9;

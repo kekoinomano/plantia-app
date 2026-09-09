@@ -9,13 +9,15 @@ import {
   NOTE_NAMES,
   TUNINGS,
   copyPatch,
+  soundSlots,
+  allowedPresets,
   preset,
   type Patch,
 } from "@/lib/sonora/presets";
 import { plantSession, usePlantSessionValue } from "@/lib/plant-session";
 import { colors, serif } from "./plantia-theme";
 import { Icon } from "./plant-icon";
-import { MOODS } from "@/lib/sonora/moods";
+import { MOODS, mood } from "@/lib/sonora/moods";
 
 export function SoundSlider({
   label,
@@ -88,7 +90,7 @@ export function soundIcon(id: string): "wave" | "keys" | "bell" | "strings" | "w
   if (sound.kind === "synth") return "wave";
   if (/bell|chime|bowl|drum|marimba|xylo|bongo|conga|timbal|maraca|taiko|timpani|kalimba/i.test(`${sound.name} ${sound.model} ${sound.program}`)) return "bell";
   if (/sitar|guitar|harp|string/i.test(`${sound.name} ${sound.program}`)) return "strings";
-  if (/flute|wind|brass|oboe/i.test(`${sound.name} ${sound.program}`)) return "wind";
+  if (sound.family === 'wind') return "wind";
   return "keys";
 }
 
@@ -105,7 +107,7 @@ export const SoundEditor = memo(function SoundEditor({
   initialMode = "choose",
 }: {
   initialMode?: "choose" | "edit";
-  lane: "synth" | "instrument" | "mix" | null;
+  lane: string | null;
   onClose: () => void;
 }) {
   const config = usePlantSessionValue((state) => state.config);
@@ -118,13 +120,18 @@ export const SoundEditor = memo(function SoundEditor({
   const [expandedEffect, setExpandedEffect] = useState<string | null>(null);
   useEffect(() => { scroll.current?.scrollTo({ y: 0, animated: false }); Keyboard.dismiss(); }, [mode, lane]);
   useEffect(() => { setAdvanced(false); setMode(initialMode); setQuery(""); setExpandedEffect(null); }, [lane, initialMode]);
-  const patch = lane === "synth" ? config.synth : config.instrument;
+  const slots = soundSlots(config);
+  const slot = slots.find((s) => s.id === lane);
+  const definition = mood(config.mood).slots.find((s) => s.id === lane);
+  const kind = slot?.kind ?? 'instrument';
+  const patch = slot?.patch ?? config.instrument;
+  const motion = slot?.motion ?? config.synthMotion;
   const updatePatch = (next: Patch) => {
-    if (lane && lane !== "mix") plantSession.configure({ ...config, [lane]: next });
+    if (lane && lane !== "mix") plantSession.updateSlot(lane, { patch: next });
   };
-  const presets = lane === "synth" ? SYNTHS : INSTRUMENTS;
+  const presets = definition ? allowedPresets(definition) : [];
   const title =
-    lane === "mix" ? "Ritmo y mezcla" : mode === "edit" ? preset(patch.preset).name : lane === "synth" ? "Elige tu atmósfera" : "Elige tu instrumento";
+    lane === "mix" ? "Ritmo y mezcla" : mode === "edit" ? preset(patch.preset).name : kind === "synth" ? "Elige tu atmósfera" : "Elige tu instrumento";
   return (
     <Modal
       visible={lane !== null}
@@ -135,7 +142,7 @@ export const SoundEditor = memo(function SoundEditor({
       <SafeAreaView style={styles.modal} edges={["top", "bottom"]}>
         <View style={styles.modalHeader}>
           {mode === "edit" && lane !== "mix" ? <Pressable accessibilityRole="button" accessibilityLabel="Volver a los sonidos" onPress={() => setMode("choose")} style={styles.back}><View style={{ transform: [{ rotate: "180deg" }] }}><Icon name="chevron" size={17} /></View><Text style={styles.label}>Sonidos</Text></Pressable> : <Text style={styles.eyebrow}>
-            {lane === "mix" ? "LA ESCUCHA" : lane === "synth" ? "SYNTH" : "INSTRUMENTO"}
+            {lane === "mix" ? "LA ESCUCHA" : kind === "synth" ? "SYNTH" : "INSTRUMENTO"}
           </Text>}
           <Pressable
             accessibilityRole="button"
@@ -177,7 +184,7 @@ export const SoundEditor = memo(function SoundEditor({
               <Text style={styles.label}>Mood · reglas musicales</Text>
               <Choices options={MOODS.map((m) => ({ value: m.id, label: m.name }))}
                 selected={config.mood ?? "organic"}
-                onSelect={(mood) => plantSession.configure({ ...config, mood })} />
+                onSelect={(id) => plantSession.selectMood(id)} />
               <SoundSlider label="Expresión de la planta" value={(config.plantResponse ?? 1) * 100}
                 onChange={(v) => plantSession.configure({ ...config, plantResponse: v / 100 })} />
               <Text style={styles.soundDetail}>Modula el timbre y el espacio sin cambiar tus ajustes. Las notas y el ritmo siguen naciendo de la señal.</Text>
@@ -190,16 +197,10 @@ export const SoundEditor = memo(function SoundEditor({
                 value={config.speed}
                 onChange={(speed) => plantSession.configure({ ...config, speed })}
               />
-              <SoundSlider
-                label="Volumen del synth"
-                value={config.synthLevel * 100}
-                onChange={(v) => plantSession.configure({ ...config, synthLevel: v / 100 })}
-              />
-              <SoundSlider
-                label="Volumen del instrumento"
-                value={config.instrumentLevel * 100}
-                onChange={(v) => plantSession.configure({ ...config, instrumentLevel: v / 100 })}
-              />
+              {slots.map((s) => <SoundSlider key={s.id}
+                label={mood(config.mood).slots.find((d) => d.id === s.id)?.label ?? s.id}
+                value={s.level * 100}
+                onChange={(v) => plantSession.updateSlot(s.id, { level: v / 100 })} />)}
               <SoundSlider
                 label="Saludo de la planta"
                 value={config.greetingLevel * 100}
@@ -321,7 +322,7 @@ export const SoundEditor = memo(function SoundEditor({
                   />
                 </>
               )}
-              {lane === "synth" && (<>
+              {kind === "synth" && (<>
                 <Text style={styles.section}>MOVIMIENTO</Text>
                 <Text style={styles.soundDetail}>El synth crea capas estables que se funden lentamente dentro de su propia escala.</Text>
                 <SoundSlider
@@ -330,27 +331,21 @@ export const SoundEditor = memo(function SoundEditor({
                   max={8}
                   step={0.25}
                   unit=" s"
-                  value={config.synthMotion.transition}
-                  onChange={(transition) => plantSession.configure({
-                    ...config,
-                    synthMotion: { ...config.synthMotion, transition },
-                  })}
+                  value={motion.transition}
+                  onChange={(transition) => lane && plantSession.updateSlot(lane, { motion: { ...motion, transition } })}
                 />
                 <SoundSlider
                   label="Estabilidad tonal"
-                  value={config.synthMotion.stability}
-                  onChange={(stability) => plantSession.configure({
-                    ...config,
-                    synthMotion: { ...config.synthMotion, stability },
-                  })}
+                  value={motion.stability}
+                  onChange={(stability) => lane && plantSession.updateSlot(lane, { motion: { ...motion, stability } })}
                 />
               </>)}
               <Text style={styles.section}>TEXTURAS</Text>
               {effectRows.map(([key, label, first, firstLabel, second, secondLabel]) => {
                 const effect = patch[key] as { on: boolean } & Record<string, number | boolean>;
-                const displayLabel = lane === "synth" && key === "envelope" ? "Entrada y salida" : label;
-                const displayFirst = lane === "synth" && key === "envelope" ? "Aparición" : firstLabel;
-                const displaySecond = lane === "synth" && key === "envelope" ? "Desvanecimiento" : secondLabel;
+                const displayLabel = kind === "synth" && key === "envelope" ? "Entrada y salida" : label;
+                const displayFirst = kind === "synth" && key === "envelope" ? "Aparición" : firstLabel;
+                const displaySecond = kind === "synth" && key === "envelope" ? "Desvanecimiento" : secondLabel;
                 const set = (change: Record<string, number | boolean>) =>
                   updatePatch({ ...patch, [key]: { ...effect, ...change } } as Patch);
                 return (

@@ -3,7 +3,7 @@ import type { Bank } from "../sonora/dsp";
 import { NativePcmCore } from "./native-pcm";
 import { Platform } from "react-native";
 import type { Event } from "../sonora/composer";
-import type { Configuration } from "../sonora/presets";
+import { soundSlots, type Configuration } from "../sonora/presets";
 
 const BLOCK_SECONDS = 0.04;
 // Native playback must outlast a UI/menu render that blocks the JS producer.
@@ -85,7 +85,7 @@ export class NativeSynth {
     })));
     const notes = events
       .filter((e): e is Extract<Event, { type: "note" }> => e.type === "note")
-      .map((e) => ({ lane: e.note.lane, midi: e.note.midi,
+      .map((e) => ({ slot: e.note.slot, lane: e.note.lane, midi: e.note.midi,
         delayMs: Math.round((e.note.time - e.note.sourceTime) * 1000),
         durationMs: Math.round(e.note.duration * 1000),
         reason: e.note.reason ?? 'preview-or-greeting', phraseStep: e.note.phraseStep }));
@@ -293,6 +293,8 @@ export class NativeSynth {
       envelope: { on: p.envelope.on, attack: p.envelope.attack, release: p.envelope.release },
     });
     return {
+      slots: soundSlots(config).map((s) => ({ id: s.id, kind: s.kind, preset: s.patch.preset,
+        level: s.level, effects: effects(s.patch), motion: s.motion })),
       presets: { synth: config.synth.preset, instrument: config.instrument.preset },
       levels: { synth: config.synthLevel, instrument: config.instrumentLevel,
         greeting: config.greetingLevel },

@@ -129,4 +129,29 @@ export const sampleAssets: Record<string, { midi: number; asset: number }[]> = {
     { midi: 60, asset: require('../../../assets/audio/sonora/kalimba-C4.mp3') },
     { midi: 72, asset: require('../../../assets/audio/sonora/kalimba-C5.mp3') },
   ],
+  "shakuhachi": [
+    { midi: 48, asset: require('../../../assets/audio/sonora/shakuhachi-C3.mp3') },
+    { midi: 60, asset: require('../../../assets/audio/sonora/shakuhachi-C4.mp3') },
+    { midi: 72, asset: require('../../../assets/audio/sonora/shakuhachi-C5.mp3') },
+  ],
+  "ocarina": [
+    { midi: 60, asset: require('../../../assets/audio/sonora/ocarina-C4.mp3') },
+    { midi: 72, asset: require('../../../assets/audio/sonora/ocarina-C5.mp3') },
+    { midi: 84, asset: require('../../../assets/audio/sonora/ocarina-C6.mp3') },
+  ],
+  "recorder": [
+    { midi: 48, asset: require('../../../assets/audio/sonora/recorder-C3.mp3') },
+    { midi: 60, asset: require('../../../assets/audio/sonora/recorder-C4.mp3') },
+    { midi: 72, asset: require('../../../assets/audio/sonora/recorder-C5.mp3') },
+  ],
+  "shanai": [
+    { midi: 48, asset: require('../../../assets/audio/sonora/shanai-C3.mp3') },
+    { midi: 60, asset: require('../../../assets/audio/sonora/shanai-C4.mp3') },
+    { midi: 72, asset: require('../../../assets/audio/sonora/shanai-C5.mp3') },
+  ],
+  "blown_bottle": [
+    { midi: 48, asset: require('../../../assets/audio/sonora/blown_bottle-C3.mp3') },
+    { midi: 60, asset: require('../../../assets/audio/sonora/blown_bottle-C4.mp3') },
+    { midi: 72, asset: require('../../../assets/audio/sonora/blown_bottle-C5.mp3') },
+  ],
 };

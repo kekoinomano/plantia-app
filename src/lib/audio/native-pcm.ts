@@ -1,7 +1,7 @@
 import { requireOptionalNativeModule } from "expo";
 import { prepareVoice, type Bank, type Sample } from "../sonora/dsp";
 import type { Event, Lane } from "../sonora/composer";
-import { greetingPatch, type Configuration, type Patch } from "../sonora/presets";
+import { audioChannels, type Configuration, type Patch } from "../sonora/presets";
 
 type Module = {
   create(rate: number): number;
@@ -25,6 +25,7 @@ export class NativePcmCore {
   private samples = new Map<Sample, number>();
   private nextSample = 1;
   private cursor = 0;
+  private channels: ReturnType<typeof audioChannels> = [];
   private state = { voices: 0, pending: 0 };
 
   constructor(private rate: number, config: Configuration, private bank: Bank) {
@@ -51,10 +52,11 @@ export class NativePcmCore {
     }
     for (const s of this.samples.keys()) if (!retained.has(s)) this.samples.delete(s);
     this.module.retain(this.id, [...this.samples.values()]);
-    const greeting = greetingPatch(config.instrument);
+    const channels = audioChannels(config);
+    const reset = channels.map((c) => c.id).join('|') !== this.channels.map((c) => c.id).join('|');
+    this.channels = channels;
     this.module.configure(this.id, [
-      ...patch(config.synthLevel, config.synth), ...patch(config.instrumentLevel, config.instrument),
-      ...patch(config.greetingLevel, greeting),
+      +reset, ...channels.flatMap((c) => [lanes.indexOf(c.kind), ...patch(c.level, c.patch)]),
     ]);
   }
 
@@ -63,12 +65,18 @@ export class NativePcmCore {
       if (e.type === "expression") this.module.schedule(this.id,
         [1, e.time, e.expression.brightness, e.expression.energy, e.expression.direction, ...e.expression.bands,
           e.expression.space ?? 0, e.expression.smoothing ?? 0.4]);
-      else if (e.type === "release") this.module.schedule(this.id, [2, e.time, e.lane ? lanes.indexOf(e.lane) : -1]);
+      else if (e.type === "release") {
+        const index = e.slot ? this.channels.findIndex((c) => c.id === e.slot) : e.lane ? this.channels.findIndex((c) => c.kind === e.lane) : -1;
+        if ((e.slot || e.lane) && index < 0) continue;
+        this.module.schedule(this.id, [2, e.time, index]);
+      }
       else {
+        const channel = this.channels.findIndex((c) => e.note.slot ? c.id === e.note.slot : c.kind === e.note.lane);
+        if (channel < 0) continue;
         const v = prepareVoice(this.rate, this.bank, e.note);
         if (!v) continue;
         this.module.schedule(this.id, [0, e.time, e.note.id, e.note.time, e.note.sourceTime,
-          lanes.indexOf(e.note.lane), v.stop, v.attack, v.release,
+          channel, v.stop, v.attack, v.release,
           v.sample ? this.samples.get(v.sample)! : 0, v.sample2 ? this.samples.get(v.sample2)! : 0,
           v.increment, v.increment2, v.detuneRatio, v.frequency, v.attenuation, v.panL, v.panR, v.gain,
           e.note.color, e.note.pan, v.model === "bowl" ? 2 : v.model ? 1 : 0,

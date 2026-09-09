@@ -4,6 +4,7 @@ import {
   preset,
   defaultConfiguration,
   greetingPatch,
+  audioChannels,
   type Configuration,
   type Patch,
 } from './presets.ts';
@@ -138,6 +139,7 @@ type Voice = {
   flavor: number;
   model: string | undefined;
   gain: number;
+  channel: number;
 };
 /** Shared note preparation: native PCM and the reference DSP use the same presets. */
 export function prepareVoice(rate: number, bank: Bank, n: Note): Voice | undefined {
@@ -157,7 +159,7 @@ export function prepareVoice(rate: number, bank: Bank, n: Note): Voice | undefin
         ? sampleFor('church_organ', n.midi)
         : null;
   // Missing assets are reported by the adapter; do not silently substitute an oscillator for a sampled instrument.
-  if (n.lane !== 'synth' && !sample && !desc.model) return;
+  if (desc.kind !== 'synth' && !sample && !desc.model) return;
   const frequency = n.patch.tuning * 2 ** ((n.midi - 69) / 12),
     flavor = desc.flavor;
   const design = synthVoice(n.patch.preset);
@@ -172,6 +174,7 @@ export function prepareVoice(rate: number, bank: Bank, n: Note): Voice | undefin
   for (let i = 0; i < harmonics.length; i++) harmonics[i] *= normalization;
   return {
     note: n,
+    channel: -1,
     sample,
     sample2,
     position: 0,
@@ -251,7 +254,8 @@ export class AudioCore {
   };
   private targetExpression = this.expression;
   private expressionBands = new Float64Array(9).fill(0.33);
-  private buses: Record<Lane, Effects>;
+  private buses: Record<string, Effects> = {};
+  private channels: ReturnType<typeof audioChannels> = [];
   private dcL = 0;
   private dcR = 0;
   private space = 0;
@@ -261,13 +265,16 @@ export class AudioCore {
     this.rate = rate;
     this.config = config;
     this.bank = bank;
-    this.buses = {
-      synth: new Effects(rate),
-      instrument: new Effects(rate),
-      greeting: new Effects(rate),
-    };
+    this.configure(config, bank);
   }
   configure(config: Configuration, bank = this.bank) {
+    const channels = audioChannels(config);
+    if (channels.map((c) => c.id).join('|') !== this.channels.map((c) => c.id).join('|')) {
+      this.voices = []; this.pending = []; this.cancelled.clear();
+      this.buses = Object.fromEntries(channels.map((c) => [c.id, new Effects(this.rate)]));
+      this.duck = this.synthDuck = 1; this.greetingAt = this.instrumentAt = -Infinity;
+    }
+    this.channels = channels;
     this.config = config;
     this.bank = bank;
   }
@@ -278,8 +285,10 @@ export class AudioCore {
   private start(n: Note) {
     const voice = prepareVoice(this.rate, this.bank, n);
     if (!voice) return;
+    voice.channel = this.channels.findIndex((c) => n.slot ? c.id === n.slot : c.kind === n.lane);
+    if (voice.channel < 0) return;
     const same = this.voices.filter(
-      (v) => v.note.lane === n.lane && v.forced === Infinity,
+      (v) => v.channel === voice.channel && v.forced === Infinity,
     );
     const limit = n.lane === 'synth' ? 6 : n.lane === 'instrument' ? 8 : 6;
     if (same.length >= limit) same[0].forced = this.time + 0.025;
@@ -295,14 +304,9 @@ export class AudioCore {
     let expressionSlew = 1 - Math.exp(-1 / ((this.targetExpression.smoothing ?? 0.4) * this.rate));
     const duckAttack = 1 - Math.exp(-1 / (0.08 * this.rate));
     const duckRelease = 1 - Math.exp(-1 / (0.8 * this.rate));
-    const lanes: Lane[] = ['synth', 'instrument', 'greeting'];
-    const levels = [
-      this.config.synthLevel,
-      this.config.instrumentLevel,
-      this.config.greetingLevel,
-    ];
-    const greetPatch = greetingPatch(this.config.instrument);
-    const patches = [this.config.synth, this.config.instrument, greetPatch];
+    const channels = this.channels;
+    const leftBus = new Float64Array(channels.length), rightBus = new Float64Array(channels.length);
+    const audibleInstrument = channels.some((c) => c.kind === 'instrument' && c.level > 0);
     for (let i = 0; i < l.length; i++, this.cursor++) {
       const time = this.cursor / this.rate;
       while (at < this.pending.length && this.pending[at].time <= time) {
@@ -311,14 +315,15 @@ export class AudioCore {
           if (this.cancelled.has(e.note.id)) this.cancelled.delete(e.note.id);
           else {
             this.start(e.note);
-            if (e.note.lane === 'instrument') this.instrumentAt = time;
+            if (e.note.lane === 'instrument' && channels.some((c) =>
+              (e.note.slot ? c.id === e.note.slot : c.kind === e.note.lane) && c.level > 0)) this.instrumentAt = time;
           }
         } else if (e.type === 'expression') {
           this.targetExpression = e.expression;
           expressionSlew = 1 - Math.exp(-1 / (Math.max(0.05, e.expression.smoothing ?? 0.4) * this.rate));
         } else {
           for (const v of this.voices)
-            if (!e.lane || v.note.lane === e.lane) {
+            if (e.slot ? v.note.slot === e.slot : !e.lane || v.note.lane === e.lane) {
               if (v.note.lane === 'synth') v.stop = Math.min(v.stop, time);
               else v.forced = Math.min(v.forced, time + 0.15);
             }
@@ -327,7 +332,7 @@ export class AudioCore {
             if (
               q.type === 'note' &&
               q.note.sourceTime <= e.time &&
-              (!e.lane || q.note.lane === e.lane)
+              (e.slot ? q.note.slot === e.slot : !e.lane || q.note.lane === e.lane)
             )
               this.cancelled.add(q.note.id);
           }
@@ -347,12 +352,7 @@ export class AudioCore {
         this.expressionBands[band] +=
           (this.targetExpression.bands[band] - this.expressionBands[band]) *
           expressionSlew;
-      let sl = 0,
-        sr = 0,
-        il = 0,
-        ir = 0,
-        gl = 0,
-        gr = 0;
+      leftBus.fill(0); rightBus.fill(0);
       const brightness = clamp(this.expression.brightness),
         energy = clamp(this.expression.energy);
       for (const v of this.voices) {
@@ -456,43 +456,33 @@ export class AudioCore {
           const drift =
             this.expression.direction * 0.13 +
             sin(age * 0.08 + v.note.pan) * 0.05;
-          sl += value * v.panL * (1 - drift);
-          sr += value * v.panR * (1 + drift);
-        } else if (v.note.lane === 'instrument') {
-          il += value * v.panL;
-          ir += value * v.panR;
+          leftBus[v.channel] += value * v.panL * (1 - drift);
+          rightBus[v.channel] += value * v.panR * (1 + drift);
         } else {
-          gl += value * v.panL;
-          gr += value * v.panR;
+          leftBus[v.channel] += value * v.panL;
+          rightBus[v.channel] += value * v.panR;
         }
       }
       const duckTarget = time - this.greetingAt < 0.65 && this.config.greetingLevel > 0 ? 0.85 : 1;
       this.duck +=
         (duckTarget - this.duck) *
         (duckTarget < this.duck ? duckAttack : duckRelease);
-      const synthDuckTarget = time - this.instrumentAt < 0.32 && this.config.instrumentLevel > 0 ? 0.62 : 1;
+      const synthDuckTarget = time - this.instrumentAt < 0.32 && audibleInstrument ? 0.62 : 1;
       this.synthDuck +=
         (synthDuckTarget - this.synthDuck) *
         (synthDuckTarget < this.synthDuck ? duckAttack : duckRelease);
       let left = 0,
         right = 0;
-      for (let j = 0; j < 3; j++) {
-        const [bl, br] = this.buses[lanes[j]].process(
-          j === 0 ? sl : j === 1 ? il : gl,
-          j === 0 ? sr : j === 1 ? ir : gr,
-          patches[j],
-          j === 0 ? energy : 0,
-          j < 2 ? this.space : 0,
-        );
-        const gain =
-          levels[j] *
-          (j < 2 ? this.duck : 1) *
-          (j === 0 ? this.synthDuck : 1);
-        left += bl * gain;
-        right += br * gain;
+      for (let j = 0; j < channels.length; j++) {
+        const channel = channels[j], kind = channel.kind;
+        const [bl, br] = this.buses[channel.id].process(leftBus[j], rightBus[j], channel.patch,
+          kind === 'synth' ? energy : 0, kind !== 'greeting' ? this.space : 0);
+        const gain = channel.level * (kind !== 'greeting' ? this.duck : 1) *
+          (kind === 'synth' ? this.synthDuck : 1);
+        left += bl * gain; right += br * gain;
         const peak = Math.max(Math.abs(bl * gain), Math.abs(br * gain));
-        if (j === 0) maxS = Math.max(maxS, peak);
-        else if (j === 1) maxI = Math.max(maxI, peak);
+        if (kind === 'synth') maxS = Math.max(maxS, peak);
+        else if (kind === 'instrument') maxI = Math.max(maxI, peak);
         else maxG = Math.max(maxG, peak);
       }
       this.dcL += (left - this.dcL) * dc;

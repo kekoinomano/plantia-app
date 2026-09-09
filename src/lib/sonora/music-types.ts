@@ -9,6 +9,7 @@ export type Note = {
   velocity: number;
   duration: number;
   lane: Lane;
+  slot?: string;
   patch: Patch;
   color: number;
   pan: number;
@@ -27,7 +28,7 @@ export type Expression = {
 export type Event =
   | { type: 'expression'; time: number; expression: Expression }
   | { type: 'note'; time: number; note: Note }
-  | { type: 'release'; time: number; lane?: Lane };
+  | { type: 'release'; time: number; lane?: Lane; slot?: string };
 export type Soundscape = {
   duration: number;
   config: Configuration;

@@ -2,7 +2,8 @@ import { AppState, Platform } from "react-native";
 import { isRunningInExpoGo } from "expo";
 import { useSyncExternalStore } from "react";
 import { GAP_SECONDS } from "./sonora/signal";
-import { copyPatch, defaultConfiguration, sanitizeConfiguration, type Patch, type Configuration } from "./sonora/presets";
+import { copyPatch, defaultConfiguration, sanitizeConfiguration, soundSlots, allowedPresets, type Patch, type Configuration } from "./sonora/presets";
+import { mood } from "./sonora/moods";
 import type { PlantPacket } from "./plant-packet";
 import type { DiscoveredDevice, PlantConnection } from "./plant-connection";
 import type { Lane } from "./sonora/composer";
@@ -265,15 +266,29 @@ class PlantSession {
   };
 
   private patches = new Map<string, Patch>();
-  selectPreset = (lane: "synth" | "instrument", id: string) => {
-    if (this.snapshot.config[lane].preset === id) return;
-    this.configure({ ...this.snapshot.config, [lane]: this.patches.get(id) ?? copyPatch(id) });
+  private moodSettings = new Map<string, Configuration>();
+  selectMood = (id: string) => {
+    const current = this.snapshot.config;
+    if (mood(current.mood).id === id) return;
+    this.moodSettings.set(mood(current.mood).id, current);
+    this.configure(this.moodSettings.get(id) ?? { ...defaultConfiguration(), mood: id });
+  };
+  selectPreset = (slotId: string, id: string) => {
+    const config = this.snapshot.config;
+    const definition = mood(config.mood).slots.find((s) => s.id === slotId);
+    if (!definition || !allowedPresets(definition).some((p) => p.id === id)) return;
+    const key = `${config.mood ?? 'organic'}:${slotId}:${id}`;
+    this.updateSlot(slotId, { patch: this.patches.get(key) ?? copyPatch(id) });
+  };
+  updateSlot = (id: string, patch: { patch?: Patch; level?: number; motion?: Configuration['synthMotion'] }) => {
+    const config = this.snapshot.config;
+    this.configure({ ...config, slots: soundSlots(config).map((s) => s.id === id ? { ...s, ...patch } : s) });
   };
   configure = (config: Configuration) => {
     const previous = this.snapshot.config;
     const next = sanitizeConfiguration(config);
-    this.patches.set(previous.synth.preset, previous.synth);
-    this.patches.set(previous.instrument.preset, previous.instrument);
+    for (const slot of soundSlots(previous))
+      this.patches.set(`${previous.mood ?? 'organic'}:${slot.id}:${slot.patch.preset}`, slot.patch);
     this.update({ config: next, error: null });
     void this.audio?.configure(next).catch((error) => {
       if (this.snapshot.config === next) this.update({ config: previous });
@@ -283,7 +298,7 @@ class PlantSession {
   togglePlayback = () => {
     void this.audio?.setPlaying(!this.snapshot.playing).catch(this.error);
   };
-  preview = (lane: Lane) => this.audio?.preview(lane);
+  preview = (slot: string) => this.audio?.preview(slot);
   clearError = () => this.update({ error: null });
 }
 

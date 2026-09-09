@@ -1,5 +1,5 @@
 import { GAP_SECONDS, type Frame, type Analysis } from './signal.ts';
-import { defaultConfiguration, sanitizeConfiguration, type Configuration } from './presets.ts';
+import { defaultConfiguration, sanitizeConfiguration, soundSlots, type Configuration } from './presets.ts';
 import { PlantInterpreter, type MusicalIntent } from './intent.ts';
 import { plantExpression } from './modulation.ts';
 import { createRules, type MusicalRules } from './rules/index.ts';
@@ -18,7 +18,12 @@ export class Composer {
   private serial = 0;
   private collect() {
     for (const event of this.rules.drain()) {
-      if (event.type === 'note') event.note.id = this.serial++;
+      if (event.type === 'note') {
+        event.note.id = this.serial++;
+        event.note.slot ??= event.note.lane === 'greeting' ? '$greeting' : soundSlots(this.config).find((s) => s.kind === event.note.lane)?.id;
+      }
+      if (event.type === 'release' && event.lane && !event.slot)
+        event.slot = event.lane === 'greeting' ? '$greeting' : soundSlots(this.config).find((s) => s.kind === event.lane)?.id;
       this.events.push(event);
     }
   }
@@ -76,8 +81,9 @@ export class Composer {
     this.rules.finish(time);
     this.collect();
   }
-  audition(lane: Lane, time: number) {
-    this.rules.audition(lane, time);
+  audition(target: string, time: number) {
+    const slot = soundSlots(this.config).find((s) => s.id === target);
+    this.rules.audition(slot?.kind ?? target as Lane, time, slot?.id);
     this.collect();
   }
   drain() {

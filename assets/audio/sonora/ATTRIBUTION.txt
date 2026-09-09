@@ -13,3 +13,10 @@ Exact source revision, URLs and SHA-256 hashes are recorded in manifest.json.
 MP3 files unchanged; decoded, trimmed and peak-normalized at load time.
 These are General MIDI soundfont sounds, not claimed field recordings or replicas
 of a particular community's musical tradition. No endorsement implied.
+
+Additional winds: shakuhachi, ocarina, recorder, shanai and blown bottle.
+FluidR3 GM by Frank Wen and contributors, rendered by Benjamin Gleitzman and
+contributors; distributed by Paul Rosen under CC-BY-3.0 (source/license above).
+Selected C3–C6 MP3 samples unchanged. Exact revision, URLs and SHA-256 hashes
+are recorded in manifest.json. These are soundfont approximations, not field
+recordings of traditional instruments. No endorsement implied.

@@ -513,9 +513,129 @@
         "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/kalimba-mp3/C5.mp3",
         "sha256": "51205bb0b6ff73f439d92789ae34c0ca774030d5491abe1d27c490c5edc7e492"
       }
+    ],
+    "shakuhachi": [
+      {
+        "midi": 48,
+        "file": "shakuhachi-C3.mp3",
+        "bytes": 24753,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/shakuhachi-mp3/C3.mp3",
+        "sha256": "f6d02c570a6108e312ed9308616b59ee7d61d9fa648e1acb93cec2e3204e9687"
+      },
+      {
+        "midi": 60,
+        "file": "shakuhachi-C4.mp3",
+        "bytes": 25585,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/shakuhachi-mp3/C4.mp3",
+        "sha256": "e91b7da727bef5a6d2a59f539afb36b0cd26a530f75def053b596cc059ece871"
+      },
+      {
+        "midi": 72,
+        "file": "shakuhachi-C5.mp3",
+        "bytes": 25585,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/shakuhachi-mp3/C5.mp3",
+        "sha256": "4cf38d99d361a18418644c851b17cc6eccde50458f05316accf971372a31f5f9"
+      }
+    ],
+    "ocarina": [
+      {
+        "midi": 60,
+        "file": "ocarina-C4.mp3",
+        "bytes": 25481,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/ocarina-mp3/C4.mp3",
+        "sha256": "2e43698b675fa42001d426bf5e2a1c63ac4f4d793c1e22b4900160073ca9253a"
+      },
+      {
+        "midi": 72,
+        "file": "ocarina-C5.mp3",
+        "bytes": 25585,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/ocarina-mp3/C5.mp3",
+        "sha256": "1c2a194d49d482e80ff5ca39f4c459de8f76f53d3427641f44f4f66023899c9b"
+      },
+      {
+        "midi": 84,
+        "file": "ocarina-C6.mp3",
+        "bytes": 25585,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/ocarina-mp3/C6.mp3",
+        "sha256": "429d448dc82eeeb78860c57d38f54878dfb0850385ce09b4e58273642d08c765"
+      }
+    ],
+    "recorder": [
+      {
+        "midi": 48,
+        "file": "recorder-C3.mp3",
+        "bytes": 20931,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/recorder-mp3/C3.mp3",
+        "sha256": "20ac5f22d549eb87d25501f6f0d26113fad5ecdc739790360819161a0805fd15"
+      },
+      {
+        "midi": 60,
+        "file": "recorder-C4.mp3",
+        "bytes": 21659,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/recorder-mp3/C4.mp3",
+        "sha256": "90264402d2f772ee83337467f1cc3ecfa51a2e0df9450fa707404a08b8bd3f9d"
+      },
+      {
+        "midi": 72,
+        "file": "recorder-C5.mp3",
+        "bytes": 25585,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/recorder-mp3/C5.mp3",
+        "sha256": "15306c0ea3cf661a408414f1b158ab5b7b0c48125d93c8bb15ebcfcbfa4ad37c"
+      }
+    ],
+    "shanai": [
+      {
+        "midi": 48,
+        "file": "shanai-C3.mp3",
+        "bytes": 21971,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/shanai-mp3/C3.mp3",
+        "sha256": "8a1ceb76eb40cc3d241f9ceb5aeabc6f908d80ac917a4fb630b89d4e8d8cdc05"
+      },
+      {
+        "midi": 60,
+        "file": "shanai-C4.mp3",
+        "bytes": 23973,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/shanai-mp3/C4.mp3",
+        "sha256": "69e3356856726ba398a291af5fe66675aa2adf04c7832c682c614655e84552cc"
+      },
+      {
+        "midi": 72,
+        "file": "shanai-C5.mp3",
+        "bytes": 25351,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/shanai-mp3/C5.mp3",
+        "sha256": "7608bc39b81ca2c1aa25c303a6d79abfdde8b9e1d7fc0afe253d3555e979c225"
+      }
+    ],
+    "blown_bottle": [
+      {
+        "midi": 48,
+        "file": "blown_bottle-C3.mp3",
+        "bytes": 25403,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/blown_bottle-mp3/C3.mp3",
+        "sha256": "1ab2a7818a5cfee8c7444b72cbc8d3c38c221d1920f67df0c989c4d46c3b934b"
+      },
+      {
+        "midi": 60,
+        "file": "blown_bottle-C4.mp3",
+        "bytes": 25585,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/blown_bottle-mp3/C4.mp3",
+        "sha256": "7caf7401e89dcd8399bafac4e3cc7b1bb4fc994c69f2fb6e9a4454956158109d"
+      },
+      {
+        "midi": 72,
+        "file": "blown_bottle-C5.mp3",
+        "bytes": 25585,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/blown_bottle-mp3/C5.mp3",
+        "sha256": "1f79297d8d99c562b1feda05ab6ce496ca502a7491dc15d469d37406786f7b96"
+      }
     ]
   },
   "percussionSource": {
+    "repository": "paulrosen/midi-js-soundfonts",
+    "revision": "cbd6b6f6d1af89ebfb69402860741288f08ff8b7",
+    "license": "CC-BY-3.0"
+  },
+  "windSource": {
     "repository": "paulrosen/midi-js-soundfonts",
     "revision": "cbd6b6f6d1af89ebfb69402860741288f08ff8b7",
     "license": "CC-BY-3.0"

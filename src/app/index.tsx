@@ -10,7 +10,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { plantSession, usePlantSession } from "@/lib/plant-session";
-import { preset } from "@/lib/sonora/presets";
+import { preset, soundSlots } from "@/lib/sonora/presets";
+import { MOODS, mood } from "@/lib/sonora/moods";
 import { Botanical, Icon } from "@/components/plant-icon";
 import { SignalChart } from "@/components/signal-chart";
 import { SoundEditor, soundIcon } from "@/components/sound-editor";
@@ -18,9 +19,12 @@ import { colors, serif } from "@/components/plantia-theme";
 
 export default function HomeScreen() {
   const state = usePlantSession();
-  const [editor, setEditor] = useState<"synth" | "instrument" | "mix" | null>(null);
+  const [editor, setEditor] = useState<string | null>(null);
   const [editorMode, setEditorMode] = useState<"choose" | "edit">("choose");
   const closeEditor = useCallback(() => setEditor(null), []);
+  const [moodOpen, setMoodOpen] = useState(false);
+  const selectedMood = mood(state.config.mood);
+  const slots = soundSlots(state.config);
   const [credits, setCredits] = useState(false);
   const connected = state.connection === "connected";
   const scanning = state.connection === "scanning";
@@ -170,24 +174,48 @@ export default function HomeScreen() {
           waiting={connected || busy}
         />
         <View style={styles.soundHeading}>
-          <Text style={styles.sectionTitle}>Tu paisaje sonoro</Text>
-          <Text style={styles.tiny}>DOS VOCES, UNA PLANTA</Text>
+          <Text style={styles.sectionTitle}>Tu mood</Text>
+          <Text style={styles.tiny}>UNA PLANTA, MUCHAS FORMAS DE ESCUCHAR</Text>
         </View>
-        <View style={styles.soundCards}>
-          {(["synth", "instrument"] as const).map((lane, i) => (
-            <View key={lane} style={[styles.soundCard, i === 1 && { backgroundColor: "#F3EEDF" }]}>
-              <Pressable accessibilityRole="button" accessibilityLabel={`Elegir ${lane === "synth" ? "synth" : "instrumento"}`} onPress={() => { setEditorMode("choose"); setEditor(lane); }} style={styles.soundSelect}>
-                <View style={styles.voiceIcon}><Icon name={soundIcon(state.config[lane].preset)} size={26} color={colors.green} /></View>
-                <View style={styles.voiceCopy}>
-                  <Text style={styles.cardEyebrow}>{i === 0 ? "ATMÓSFERA · SYNTH" : "MELODÍA · INSTRUMENTO"}</Text>
-                  <Text style={styles.soundName}>{preset(state.config[lane].preset).name}</Text>
-                  <Text style={styles.soundScale}>{state.config[lane].scale} · {state.config[lane].tuning} Hz</Text>
-                </View>
-                <View style={{ transform: [{ rotate: "90deg" }] }}><Icon name="chevron" size={16} /></View>
-              </Pressable>
-              <Pressable accessibilityRole="button" accessibilityLabel={`Editar ${preset(state.config[lane].preset).name}`} onPress={() => { setEditorMode("edit"); setEditor(lane); }} style={styles.voiceEdit}><Icon name="edit" size={19} /></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Elegir mood"
+          accessibilityState={{ expanded: moodOpen }} onPress={() => setMoodOpen(!moodOpen)}
+          style={styles.moodCard}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.moodName}>{selectedMood.name}</Text>
+            <Text style={styles.soundScale}>{selectedMood.description}</Text>
+          </View>
+          <View style={{ transform: [{ rotate: moodOpen ? "270deg" : "90deg" }] }}><Icon name="chevron" size={20} /></View>
+        </Pressable>
+        {moodOpen && <View style={styles.moodOptions}>{MOODS.map((m) =>
+          <Pressable key={m.id} accessibilityRole="button" accessibilityState={{ selected: selectedMood.id === m.id }}
+            onPress={() => { plantSession.selectMood(m.id); setMoodOpen(false); setEditor(null); }}
+            style={styles.moodOption}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.mixText}>{m.name}</Text>
+              <Text style={styles.soundScale}>{m.description}</Text>
             </View>
-          ))}
+            {selectedMood.id === m.id && <Icon name="check" size={18} />}
+          </Pressable>)}</View>}
+        <Text style={[styles.cardEyebrow, { marginTop: 18, marginBottom: 10 }]}>SONIDOS DE ESTE MOOD</Text>
+        <View style={styles.soundCards}>
+          {slots.map((slot) => {
+            const definition = selectedMood.slots.find((s) => s.id === slot.id)!;
+            const sound = preset(slot.patch.preset);
+            return <View key={slot.id} style={styles.soundCard}>
+              <Pressable accessibilityRole="button" accessibilityLabel={`Elegir ${definition.label}`}
+                onPress={() => { setEditorMode("choose"); setEditor(slot.id); }} style={styles.soundSelect}>
+                <Icon name={soundIcon(slot.patch.preset)} size={21} color={colors.green} />
+                <View style={styles.voiceCopy}>
+                  <Text style={styles.cardEyebrow}>{definition.label.toUpperCase()}</Text>
+                  <Text style={[styles.soundName, { fontSize: 18 }]}>{sound.name}</Text>
+                  {definition.families && <Text style={styles.soundScale}>Solo {definition.families.map((f) => f === 'percussion' ? 'percusión' : f === 'wind' ? 'viento' : f).join(' / ')}</Text>}
+                </View>
+                <View style={{ transform: [{ rotate: "90deg" }] }}><Icon name="chevron" size={14} /></View>
+              </Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel={`Editar ${definition.label}: ${sound.name}`}
+                onPress={() => { setEditorMode("edit"); setEditor(slot.id); }} style={styles.voiceEdit}><Icon name="edit" size={17} /></Pressable>
+            </View>;
+          })}
         </View>
         <Pressable accessibilityRole="button" onPress={() => setEditor("mix")} style={styles.mix}>
           <View style={styles.mixLeft}>
@@ -356,9 +384,13 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { fontFamily: serif, fontSize: 21, color: colors.ink },
   tiny: { color: colors.muted, fontSize: 7, letterSpacing: 0.6 },
-  soundCards: { gap: 12 },
+  moodCard: { flexDirection: "row", alignItems: "center", padding: 22, gap: 12, borderRadius: 23, backgroundColor: "#EAF0E2" },
+  moodName: { fontFamily: serif, fontSize: 30, color: colors.ink, marginBottom: 6 },
+  moodOptions: { borderRadius: 18, padding: 8, backgroundColor: "#EAF0E2", marginTop: 6 },
+  moodOption: { flexDirection: "row", alignItems: "center", padding: 13, gap: 12 },
+  soundCards: { gap: 8 },
   soundCard: { flexDirection: "row", alignItems: "center", borderRadius: 23, backgroundColor: "#EAF0E2", paddingRight: 12 },
-  soundSelect: { flex: 1, flexDirection: "row", alignItems: "center", padding: 17, gap: 13, minHeight: 105 },
+  soundSelect: { flex: 1, flexDirection: "row", alignItems: "center", padding: 13, gap: 12, minHeight: 70 },
   voiceIcon: { width: 48, height: 48, backgroundColor: "#FFFFFF88", borderRadius: 16, alignItems: "center", justifyContent: "center" },
   voiceCopy: { flex: 1 },
   voiceEdit: { width: 44, height: 44, borderRadius: 15, backgroundColor: "#FFFFFF88", alignItems: "center", justifyContent: "center" },

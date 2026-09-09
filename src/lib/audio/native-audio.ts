@@ -115,8 +115,7 @@ export class NativeAudio {
     const config = sanitizeConfiguration(input);
     if (!this.context || this.closed) return;
     const current = this.currentSettings;
-    const bank = current?.config.instrument.preset === config.instrument.preset
-      ? current.bank : await this.bank.load(config, this.context);
+    const bank = await this.bank.load(config, this.context);
     if (this.closed || version !== this.configureVersion) return;
     this.currentSettings = { config, bank };
     if (!this.synth) {
@@ -133,8 +132,8 @@ export class NativeAudio {
       this.resetComposition();
     } else {
       this.composer?.configure(config, this.context.currentTime);
-      this.synth.events(this.composer?.drain() ?? []);
       this.synth.configure(config, bank);
+      this.synth.events(this.composer?.drain() ?? []);
     }
   }
 
@@ -156,7 +155,7 @@ export class NativeAudio {
     }
   }
 
-  preview(lane: Lane) {
+  preview(lane: string) {
     if (!this.context || !this.playing || this.closed || !this.composer) return;
     try {
       const now = this.context.currentTime;

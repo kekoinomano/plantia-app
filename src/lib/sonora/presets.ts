@@ -1,4 +1,4 @@
-import { mood } from './moods.ts';
+import { mood, type MoodSlot, type SoundFamily } from './moods.ts';
 /** Sonora preset format v1: JSON-compatible; old saved configurations remain valid. */
 export const NOTE_NAMES = [
   'C',
@@ -54,6 +54,7 @@ export type Configuration = {
   version: 1;
   mood?: string;
   plantResponse?: number;
+  slots?: SoundSlot[];
   synth: Patch;
   instrument: Patch;
   synthMotion: { transition: number; stability: number };
@@ -62,10 +63,15 @@ export type Configuration = {
   instrumentLevel: number;
   greetingLevel: number;
 };
+export type SoundSlot = {
+  id: string; kind: 'synth' | 'instrument'; patch: Patch; level: number;
+  motion?: { transition: number; stability: number };
+};
 export type Preset = {
   id: string;
   name: string;
   kind: 'synth' | 'instrument';
+  family: SoundFamily;
   patch: Patch;
   program?: string;
   model?: string;
@@ -220,6 +226,11 @@ const instruments: Row[] = [
     '100/0',
     'orchestral_harp',
   ],
+  ['Shakuhachi', 'Min Pentatonic', '3-5', '12/92', '28/40', '-', '28/12', 'shakuhachi'],
+  ['Ocarina', 'Maj Pentatonic', '4-6', '10/92', '23/35', '-', '22/8', 'ocarina'],
+  ['Flauta dulce', 'Doric', '3-5', '8/92', '20/30', '-', '25/10', 'recorder'],
+  ['Shanai', 'Min Pentatonic', '3-5', '8/94', '18/28', '-', '20/6', 'shanai'],
+  ['Flauta de botella', 'Maj Pentatonic', '3-5', '14/93', '26/40', '-', '26/14', 'blown_bottle'],
 ];
 const pair = (s: string) => (s === '-' ? [0, 0] : s.split('/').map(Number));
 const percussionHits: Record<string, number[]> = {
@@ -236,6 +247,11 @@ function make(row: Row, kind: Preset['kind'], flavor: number): Preset {
     id,
     name,
     kind,
+    family: kind === 'synth' ? 'ambient' :
+      /bongo|conga|timbal|maraca|taiko|timpani|kalimba|drum|marimba|xylo|bell|model:/.test(source ?? '') ? 'percussion' :
+      /flute|oboe|brass|shakuhachi|ocarina|recorder|shanai|blown_bottle/.test(source ?? '') ? 'wind' :
+      /harp|guitar|string|sitar/.test(source ?? '') ? 'strings' :
+      /choir/.test(source ?? '') ? 'voice' : 'keys',
     flavor,
     percussion: source ? percussionHits[source] : undefined,
     description: source && percussionHits[source] ? 'Percusión · golpes originales sin transposición' :
@@ -284,6 +300,18 @@ export function sanitizeConfiguration(input: Configuration): Configuration {
   const c = JSON.parse(JSON.stringify(input)) as Configuration;
   c.mood = mood(c.mood).id;
   c.plantResponse = limit(c.plantResponse ?? 1, 0, 1);
+  const definition = mood(c.mood);
+  if (definition.slots.length > 8) throw Error('Un mood admite hasta ocho sonidos');
+  c.slots = definition.slots.map((slot) => {
+    const saved = c.slots?.find((s) => s.id === slot.id);
+    const legacy = !c.slots && definition.id === 'organic' ? c[slot.kind] : undefined;
+    const patch = saved?.patch ?? legacy ?? copyPatch(slot.defaultPreset);
+    if (!allowedPresets(slot).some((p) => p.id === patch.preset))
+      throw Error(`Sonido no compatible con ${slot.label}`);
+    return { id: slot.id, kind: slot.kind, patch,
+      ...(slot.kind === 'synth' ? { motion: saved?.motion ?? c.synthMotion ?? { transition: 4.5, stability: 78 } } : {}),
+      level: limit(saved?.level ?? (legacy ? c[slot.kind === 'synth' ? 'synthLevel' : 'instrumentLevel'] : slot.level), 0, 1) };
+  });
   const synthMotion = c.synthMotion as Configuration['synthMotion'] & {
     glide?: number;
   };
@@ -291,8 +319,12 @@ export function sanitizeConfiguration(input: Configuration): Configuration {
     transition: limit(synthMotion?.transition ?? synthMotion?.glide ?? 4.5, 1, 8),
     stability: limit(synthMotion?.stability ?? 78, 0, 100),
   };
-  for (const lane of ['synth', 'instrument'] as const) {
-    const p = c[lane];
+  for (const slot of c.slots) {
+    const lane = slot.kind, p = slot.patch;
+    if (lane === 'synth') slot.motion = {
+      transition: limit(slot.motion?.transition ?? 4.5, 1, 8),
+      stability: limit(slot.motion?.stability ?? 78, 0, 100),
+    };
     if (!PRESETS.some((x) => x.id === p.preset && x.kind === lane))
       throw Error('Preset no válido');
     p.notes = [
@@ -323,6 +355,13 @@ export function sanitizeConfiguration(input: Configuration): Configuration {
   c.synthLevel = limit(c.synthLevel, 0, 1);
   c.instrumentLevel = limit(c.instrumentLevel, 0, 1);
   c.greetingLevel = limit(c.greetingLevel, 0, 1);
+  // Compatibility views for the original Organic strategy and older callers.
+  for (const kind of ['synth', 'instrument'] as const) {
+    const slot = c.slots.find((s) => s.kind === kind);
+    c[kind] = slot?.patch ?? copyPatch(kind === 'synth' ? 'healing' : 'harp');
+    c[kind === 'synth' ? 'synthLevel' : 'instrumentLevel'] = slot?.level ?? 0;
+    if (kind === 'synth' && slot?.motion) c.synthMotion = slot.motion;
+  }
   c.version = 1;
   return c;
 }
@@ -344,4 +383,20 @@ export function greetingPatch(instrument: Patch): Patch {
     chorus: { on: true, depth: 12, rate: 18 },
     envelope: { on: true, attack: 0, release: 10 },
   };
+}
+
+export const allowedPresets = (slot: MoodSlot) => PRESETS.filter((p) =>
+  p.kind === slot.kind && (!slot.families || slot.families.includes(p.family)));
+export const soundSlots = (config: Configuration): SoundSlot[] => config.slots ??
+  mood(config.mood).slots.map((s) => ({ id: s.id, kind: s.kind,
+    ...(s.kind === 'synth' ? { motion: config.synthMotion } : {}),
+    patch: mood(config.mood).id === 'organic' ? config[s.kind] : copyPatch(s.defaultPreset),
+    level: mood(config.mood).id === 'organic' ? config[s.kind === 'synth' ? 'synthLevel' : 'instrumentLevel'] : s.level }));
+export function audioChannels(config: Configuration) {
+  const slots = soundSlots(config);
+  const source = slots.find((s) => s.kind === 'instrument') ?? slots[0];
+  return [
+    ...slots,
+    { id: '$greeting', kind: 'greeting' as const, patch: greetingPatch(source.patch), level: config.greetingLevel },
+  ];
 }

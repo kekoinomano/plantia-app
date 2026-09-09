@@ -155,13 +155,39 @@ var Sonora = (() => {
   }
 
   // src/lib/sonora/moods.ts
-  var MOODS = [{
-    id: "organic",
-    name: "Org\xE1nico",
-    rules: "organic",
-    sounds: { synth: "healing", instrument: "harp" },
-    modulation: { brightness: 0.3, energy: 0.25, space: 8, smoothing: 0.4 }
-  }];
+  var MOODS = [
+    {
+      id: "organic",
+      name: "Org\xE1nico",
+      rules: "organic",
+      description: "Una melod\xEDa viva sobre un ambiente suave.",
+      slots: [
+        { id: "atmosphere", label: "Ambiente", kind: "synth", defaultPreset: "healing", level: 0.55 },
+        { id: "melody", label: "Melod\xEDa", kind: "instrument", defaultPreset: "harp", level: 0.95 }
+      ],
+      modulation: { brightness: 0.3, energy: 0.25, space: 8, smoothing: 0.4 }
+    },
+    {
+      id: "mist",
+      name: "Bruma",
+      rules: "mist",
+      description: "Nubes arm\xF3nicas, destellos y silencios que siguen la forma de la se\xF1al.",
+      slots: [{ id: "cloud", label: "Nube sonora", kind: "synth", defaultPreset: "enlightenment", level: 0.8 }],
+      modulation: { brightness: 0.4, energy: 0.3, space: 18, smoothing: 1.2 }
+    },
+    {
+      id: "grove",
+      name: "Sotobosque",
+      rules: "grove",
+      description: "Polirritmos y frases de viento: la planta pregunta, responde y respira.",
+      slots: [
+        { id: "ground", label: "Fondo", kind: "synth", defaultPreset: "meditation", level: 0.35 },
+        { id: "pulse", label: "Percusi\xF3n", kind: "instrument", families: ["percussion"], defaultPreset: "congas", level: 0.8 },
+        { id: "breath", label: "Viento", kind: "instrument", families: ["wind"], defaultPreset: "pan-flute", level: 0.8 }
+      ],
+      modulation: { brightness: 0.5, energy: 0.45, space: 22, smoothing: 0.5 }
+    }
+  ];
   var mood = (id) => {
     var _a;
     return (_a = MOODS.find((m) => m.id === id)) != null ? _a : MOODS[0];
@@ -337,7 +363,12 @@ var Sonora = (() => {
       "84/29",
       "100/0",
       "orchestral_harp"
-    ]
+    ],
+    ["Shakuhachi", "Min Pentatonic", "3-5", "12/92", "28/40", "-", "28/12", "shakuhachi"],
+    ["Ocarina", "Maj Pentatonic", "4-6", "10/92", "23/35", "-", "22/8", "ocarina"],
+    ["Flauta dulce", "Doric", "3-5", "8/92", "20/30", "-", "25/10", "recorder"],
+    ["Shanai", "Min Pentatonic", "3-5", "8/94", "18/28", "-", "20/6", "shanai"],
+    ["Flauta de botella", "Maj Pentatonic", "3-5", "14/93", "26/40", "-", "26/14", "blown_bottle"]
   ];
   var pair = (s) => s === "-" ? [0, 0] : s.split("/").map(Number);
   var percussionHits = {
@@ -354,6 +385,7 @@ var Sonora = (() => {
       id,
       name,
       kind,
+      family: kind === "synth" ? "ambient" : /bongo|conga|timbal|maraca|taiko|timpani|kalimba|drum|marimba|xylo|bell|model:/.test(source != null ? source : "") ? "percussion" : /flute|oboe|brass|shakuhachi|ocarina|recorder|shanai|blown_bottle/.test(source != null ? source : "") ? "wind" : /harp|guitar|string|sitar/.test(source != null ? source : "") ? "strings" : /choir/.test(source != null ? source : "") ? "voice" : "keys",
       flavor,
       percussion: source ? percussionHits[source] : void 0,
       description: source && percussionHits[source] ? "Percusi\xF3n \xB7 golpes originales sin transposici\xF3n" : ["taiko_drum", "timpani", "kalimba"].includes(source != null ? source : "") ? "Percusi\xF3n afinada" : void 0,
@@ -397,17 +429,38 @@ var Sonora = (() => {
   }
   var limit = (n, a, b) => Number.isFinite(n) ? Math.max(a, Math.min(b, n)) : a;
   function sanitizeConfiguration(input) {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
     const c = JSON.parse(JSON.stringify(input));
     c.mood = mood(c.mood).id;
     c.plantResponse = limit((_a = c.plantResponse) != null ? _a : 1, 0, 1);
+    const definition = mood(c.mood);
+    if (definition.slots.length > 8) throw Error("Un mood admite hasta ocho sonidos");
+    c.slots = definition.slots.map((slot) => {
+      var _a2, _b2, _c2, _d2, _e2, _f2;
+      const saved = (_a2 = c.slots) == null ? void 0 : _a2.find((s) => s.id === slot.id);
+      const legacy = !c.slots && definition.id === "organic" ? c[slot.kind] : void 0;
+      const patch = (_c2 = (_b2 = saved == null ? void 0 : saved.patch) != null ? _b2 : legacy) != null ? _c2 : copyPatch(slot.defaultPreset);
+      if (!allowedPresets(slot).some((p) => p.id === patch.preset))
+        throw Error(`Sonido no compatible con ${slot.label}`);
+      return __spreadProps(__spreadValues({
+        id: slot.id,
+        kind: slot.kind,
+        patch
+      }, slot.kind === "synth" ? { motion: (_e2 = (_d2 = saved == null ? void 0 : saved.motion) != null ? _d2 : c.synthMotion) != null ? _e2 : { transition: 4.5, stability: 78 } } : {}), {
+        level: limit((_f2 = saved == null ? void 0 : saved.level) != null ? _f2 : legacy ? c[slot.kind === "synth" ? "synthLevel" : "instrumentLevel"] : slot.level, 0, 1)
+      });
+    });
     const synthMotion = c.synthMotion;
     c.synthMotion = {
       transition: limit((_c = (_b = synthMotion == null ? void 0 : synthMotion.transition) != null ? _b : synthMotion == null ? void 0 : synthMotion.glide) != null ? _c : 4.5, 1, 8),
       stability: limit((_d = synthMotion == null ? void 0 : synthMotion.stability) != null ? _d : 78, 0, 100)
     };
-    for (const lane of ["synth", "instrument"]) {
-      const p = c[lane];
+    for (const slot of c.slots) {
+      const lane = slot.kind, p = slot.patch;
+      if (lane === "synth") slot.motion = {
+        transition: limit((_f = (_e = slot.motion) == null ? void 0 : _e.transition) != null ? _f : 4.5, 1, 8),
+        stability: limit((_h = (_g = slot.motion) == null ? void 0 : _g.stability) != null ? _h : 78, 0, 100)
+      };
       if (!PRESETS.some((x) => x.id === p.preset && x.kind === lane))
         throw Error("Preset no v\xE1lido");
       p.notes = [
@@ -438,6 +491,12 @@ var Sonora = (() => {
     c.synthLevel = limit(c.synthLevel, 0, 1);
     c.instrumentLevel = limit(c.instrumentLevel, 0, 1);
     c.greetingLevel = limit(c.greetingLevel, 0, 1);
+    for (const kind of ["synth", "instrument"]) {
+      const slot = c.slots.find((s) => s.kind === kind);
+      c[kind] = (_i = slot == null ? void 0 : slot.patch) != null ? _i : copyPatch(kind === "synth" ? "healing" : "harp");
+      c[kind === "synth" ? "synthLevel" : "instrumentLevel"] = (_j = slot == null ? void 0 : slot.level) != null ? _j : 0;
+      if (kind === "synth" && (slot == null ? void 0 : slot.motion)) c.synthMotion = slot.motion;
+    }
     c.version = 1;
     return c;
   }
@@ -456,6 +515,26 @@ var Sonora = (() => {
       chorus: { on: true, depth: 12, rate: 18 },
       envelope: { on: true, attack: 0, release: 10 }
     });
+  }
+  var allowedPresets = (slot) => PRESETS.filter((p) => p.kind === slot.kind && (!slot.families || slot.families.includes(p.family)));
+  var soundSlots = (config) => {
+    var _a;
+    return (_a = config.slots) != null ? _a : mood(config.mood).slots.map((s) => __spreadProps(__spreadValues({
+      id: s.id,
+      kind: s.kind
+    }, s.kind === "synth" ? { motion: config.synthMotion } : {}), {
+      patch: mood(config.mood).id === "organic" ? config[s.kind] : copyPatch(s.defaultPreset),
+      level: mood(config.mood).id === "organic" ? config[s.kind === "synth" ? "synthLevel" : "instrumentLevel"] : s.level
+    }));
+  };
+  function audioChannels(config) {
+    var _a;
+    const slots = soundSlots(config);
+    const source = (_a = slots.find((s) => s.kind === "instrument")) != null ? _a : slots[0];
+    return [
+      ...slots,
+      { id: "$greeting", kind: "greeting", patch: greetingPatch(source.patch), level: config.greetingLevel }
+    ];
   }
 
   // src/lib/sonora/gesture.ts
@@ -526,10 +605,13 @@ var Sonora = (() => {
     constructor() {
       __publicField(this, "previous", null);
       __publicField(this, "baseline", 0);
+      __publicField(this, "cadence", 0.5);
+      __publicField(this, "irregularity", 0);
       __publicField(this, "character", { level: 0.5, pace: 0.5, variation: 0, texture: 0 });
       __publicField(this, "gesture", createGestureDetector());
     }
     push(f) {
+      var _a, _b;
       const first = !this.previous;
       const delta = first ? 0 : f.center - this.previous.center;
       const dt = first ? 0.25 : Math.max(1e-3, f.time - this.previous.time);
@@ -540,12 +622,24 @@ var Sonora = (() => {
         texture: f.spread / (f.spread + 0.08)
       };
       const follow = first ? 1 : 1 - Math.exp(-dt / 4);
+      const cadence = clamp(Math.log1p(Math.max(0, f.cadence) * 20) / Math.log(121));
+      const jitter = first ? 0 : Math.abs(f.cadence - this.previous.cadence) / Math.max(0.05, f.cadence + this.previous.cadence);
+      this.cadence += (cadence - this.cadence) * (first ? 1 : follow);
+      this.irregularity += (jitter - this.irregularity) * follow;
       for (const key of ["level", "pace", "variation", "texture"])
         this.character[key] += (measured[key] - this.character[key]) * follow;
       this.baseline = first ? f.center : this.baseline + (f.center - this.baseline) * (1 - Math.exp(-dt / 3));
       const profileScale = Math.max(4e-3, f.spread);
       const bandSum = Math.max(1e-4, f.spectrum.reduce((sum, x) => sum + x, 0));
       const shape = f.spectrum.reduce((sum, x, i) => sum + x * (i + 1), 0) / Math.max(1e-8, f.spectrum.reduce((sum, x) => sum + x, 0)) / 9;
+      const entropy = -f.spectrum.reduce((sum, x) => {
+        const p = x / bandSum;
+        return sum + (p > 0 ? p * Math.log(p) : 0);
+      }, 0) / Math.log(9);
+      const profileEnergy = f.profile.reduce((sum, x) => sum + Math.abs(x), 0);
+      const asymmetry = profileEnergy > 1e-8 ? f.profile.reduce((sum, x, i) => sum + Math.abs(x) * (i / Math.max(1, f.profile.length - 1) * 2 - 1), 0) / profileEnergy : 0;
+      const previousBandSum = Math.max(1e-4, (_b = (_a = this.previous) == null ? void 0 : _a.spectrum.reduce((a, b) => a + b, 0)) != null ? _b : 0);
+      const novelty = first ? 0 : clamp(Math.abs(delta) / (profileScale + Math.abs(delta)) * 0.55 + f.spectrum.reduce((sum, x, i) => sum + Math.abs(x / bandSum - this.previous.spectrum[i] / previousBandSum), 0) * 0.225);
       this.previous = f;
       return {
         frame: f,
@@ -557,7 +651,14 @@ var Sonora = (() => {
         bands: f.spectrum.map((x) => Math.sqrt(x / bandSum)),
         contour: Math.tanh((f.center - this.baseline) * 60 + f.slope * 35),
         position: clamp(0.1 + this.character.level * 0.65 + (this.character.pace - 0.5) * 0.24 + (shape - 0.5) * 0.22, 0.12, 0.88),
-        greeting: Boolean(this.gesture.push(f))
+        greeting: Boolean(this.gesture.push(f)),
+        fingerprint: {
+          cadence: this.cadence,
+          irregularity: this.irregularity,
+          entropy: clamp(entropy),
+          asymmetry,
+          novelty
+        }
       };
     }
   };
@@ -568,14 +669,15 @@ var Sonora = (() => {
     const { character: c, bands, frame, profileScale } = intent;
     const ranges = mood(config.mood).modulation;
     const amount = (_a = config.plantResponse) != null ? _a : 1;
-    const brightness = c.texture * 0.35 + c.level * 0.2 + c.variation * 0.25 + bands.slice(4).reduce((sum, x) => sum + x, 0) * 0.08;
-    const energy = c.variation * 0.4 + c.pace * 0.3 + c.texture * 0.3;
+    const ensemble = mood(config.mood).rules !== "organic";
+    const brightness = ensemble ? c.level * 0.25 + intent.shape * 0.35 + intent.fingerprint.entropy * 0.4 : c.texture * 0.35 + c.level * 0.2 + c.variation * 0.25 + bands.slice(4).reduce((sum, x) => sum + x, 0) * 0.08;
+    const energy = ensemble ? c.variation * 0.4 + (1 - intent.fingerprint.cadence) * 0.35 + intent.fingerprint.novelty * 0.25 : c.variation * 0.4 + c.pace * 0.3 + c.texture * 0.3;
     return {
       brightness: clamp(0.35 + clamp(brightness - 0.35, -ranges.brightness, ranges.brightness) * amount),
       energy: clamp(0.3 + clamp(energy - 0.3, -ranges.energy, ranges.energy) * amount),
       direction: Math.tanh(frame.slope / profileScale) * amount,
       bands: bands.map((x) => 0.33 + (x - 0.33) * amount),
-      space: (c.variation - 0.5) * 2 * ranges.space * amount,
+      space: clamp(ensemble ? 1 - intent.fingerprint.cadence - c.texture - intent.fingerprint.irregularity * 0.5 : (c.variation - 0.5) * 2, -1, 1) * ranges.space * amount,
       smoothing: ranges.smoothing
     };
   }
@@ -1241,8 +1343,288 @@ var Sonora = (() => {
     }
   };
 
+  // src/lib/sonora/rules/ensemble.ts
+  var wrap = (n, size) => (n % size + size) % size;
+  var pulse = (step, count, length, rotation = 0) => wrap((step + rotation) * count, length) < count;
+  var closest = (pool, target) => pool.reduce((a, b) => Math.abs(b - target) < Math.abs(a - target) ? b : a);
+  function voicing(pool, root, count, previous) {
+    var _a;
+    const notes = [root];
+    const consonant = (a, b) => [0, 3, 4, 5, 7, 8, 9].includes(wrap(a - b, 12));
+    for (let voice = 1; voice < count; voice++) {
+      const candidates = pool.filter((n) => !notes.includes(n) && Math.abs(n - root) <= 16 && notes.every((other) => Math.abs(n - other) >= 3 && consonant(n, other)));
+      if (!candidates.length) break;
+      const target = (_a = previous[voice]) != null ? _a : root + (voice === 1 ? 7 : 4);
+      notes.push(closest(candidates, target));
+    }
+    return notes;
+  }
+  var EnsembleRules = class {
+    constructor(config, style) {
+      __publicField(this, "events", []);
+      __publicField(this, "next", /* @__PURE__ */ new Map());
+      __publicField(this, "steps", /* @__PURE__ */ new Map());
+      __publicField(this, "phrases", /* @__PURE__ */ new Map());
+      __publicField(this, "harmony", /* @__PURE__ */ new Map());
+      __publicField(this, "previousPitch", /* @__PURE__ */ new Map());
+      __publicField(this, "stopped", false);
+      __publicField(this, "config");
+      __publicField(this, "style");
+      this.config = config;
+      this.style = style;
+    }
+    configure(config, time) {
+      for (const slot of soundSlots(config)) {
+        const old = soundSlots(this.config).find((s) => s.id === slot.id);
+        if (JSON.stringify(old == null ? void 0 : old.patch) !== JSON.stringify(slot.patch)) {
+          this.events.push({ type: "release", time, slot: slot.id });
+          this.next.delete(slot.id);
+          this.phrases.delete(slot.id);
+          this.harmony.delete(slot.id);
+          this.previousPitch.delete(slot.id);
+          this.steps.delete(slot.id);
+        }
+      }
+      this.config = config;
+    }
+    note(slot, f, time, midi, duration, velocity, pan, fade, greeting = false, reason, articulation) {
+      var _a, _b, _c;
+      const patch = articulation === void 0 || !slot.patch.envelope.on ? slot.patch : __spreadProps(__spreadValues({}, slot.patch), {
+        envelope: __spreadProps(__spreadValues({}, slot.patch.envelope), {
+          attack: slot.patch.envelope.attack * articulation,
+          release: Math.min(slot.patch.envelope.release, 12 + articulation * 20)
+        })
+      });
+      this.events.push({ type: "note", time, note: {
+        id: 0,
+        time,
+        sourceTime: f.time,
+        source: f.seq,
+        midi,
+        duration,
+        velocity: clamp(velocity, 0, 127),
+        pan: clamp(pan, -1, 1),
+        fade,
+        color: 0.4,
+        lane: greeting ? "greeting" : slot.kind,
+        slot: greeting ? "$greeting" : slot.id,
+        patch: greeting ? greetingPatch(slot.patch) : patch,
+        reason: greeting ? "mood-greeting" : `${this.style}-${reason != null ? reason : slot.id}`,
+        phraseStep: ((_a = this.steps.get(slot.id)) != null ? _a : 0) % ((_c = (_b = this.phrases.get(slot.id)) == null ? void 0 : _b.length) != null ? _c : 8)
+      } });
+    }
+    phrase(slot, intent, pool) {
+      var _a, _b;
+      const { character: c, fingerprint: f } = intent;
+      const old = this.phrases.get(slot.id);
+      const generation = ((_a = old == null ? void 0 : old.generation) != null ? _a : -1) + 1;
+      const response = (_b = this.config.plantResponse) != null ? _b : 1;
+      const activity = clamp(c.variation * 0.4 + (1 - f.cadence) * 0.4 + f.entropy * 0.2);
+      const length = f.asymmetry < -0.25 ? 12 : 16;
+      const home = Math.round(clamp(0.5 + (c.level - 0.5) * 0.7 * response + (intent.shape - 0.5) * 0.25 * response, 0.12, 0.83) * (pool.length - 1));
+      const spread = 1 + Math.round(c.texture * 3 + f.entropy * 2);
+      const measured = intent.frame.profile.filter((_, i) => i % 2 === generation % 2).map((x) => Math.round(Math.tanh(x / intent.profileScale) * spread));
+      const motif = !old || f.novelty > 0.5 ? measured : old.motif.map((n, i) => i < 2 ? n : measured[i]);
+      const result = {
+        length,
+        home,
+        motif,
+        generation,
+        activity,
+        pulses: Math.round(3 + activity * (length / 2 - 3)),
+        rotation: Math.round((f.asymmetry + 1) * 3 + intent.shape * 4),
+        swing: f.irregularity * 0.2,
+        beat: (0.26 + f.cadence * 0.27) / this.config.speed
+      };
+      this.phrases.set(slot.id, result);
+      return result;
+    }
+    tick(intent, time) {
+      var _a, _b, _c, _d;
+      if (this.stopped) return;
+      const { character: c, frame, fingerprint: f } = intent;
+      for (const [i, slot] of soundSlots(this.config).entries()) {
+        if (time < ((_a = this.next.get(slot.id)) != null ? _a : -Infinity)) continue;
+        const step = (_b = this.steps.get(slot.id)) != null ? _b : 0, pool = notePool(slot.patch);
+        if (!pool.length) continue;
+        let phrase = this.phrases.get(slot.id);
+        if (!phrase || step % (slot.kind === "synth" ? 4 : phrase.length) === 0)
+          phrase = this.phrase(slot, intent, pool);
+        const p = phrase, cell = step % p.length;
+        const beat = p.beat;
+        const sample = Math.tanh(frame.profile[(cell + i * 3) % frame.profile.length] / intent.profileScale);
+        const velocity = clamp(slot.patch.velocity.center + slot.patch.velocity.range * ((p.activity - 0.5) * 0.45 + sample * 0.2), 18, 120);
+        if (slot.kind === "synth") {
+          const motion = (_c = slot.motion) != null ? _c : this.config.synthMotion;
+          const cycle = step % 4;
+          const direction = intent.contour < 0 ? -1 : 1;
+          const degree = cycle === 3 ? 0 : p.motif[cycle] + direction * cycle;
+          const root = pool[Math.round(clamp(p.home + degree, 0, pool.length - 1))];
+          const period = beat * (this.style === "mist" ? 9 + motion.stability / 25 : 12);
+          const previous = (_d = this.harmony.get(slot.id)) != null ? _d : [];
+          const pitches = voicing(pool, root, this.style === "mist" && f.entropy > 0.45 ? 3 : 2, previous);
+          this.harmony.set(slot.id, pitches);
+          const breathing = cycle === 3 ? 0.62 : 0.92;
+          pitches.forEach((midi, j) => {
+            const delay = j * beat * (0.35 + c.texture * 0.7);
+            this.note(
+              slot,
+              frame,
+              time + delay,
+              midi,
+              period * breathing - delay,
+              velocity * (j ? 0.3 : 0.43),
+              (j - (pitches.length - 1) / 2) * 0.38,
+              Math.min(period * 0.25, motion.transition),
+              false,
+              cycle === 3 ? "harmonic-return" : "voiced-cloud"
+            );
+          });
+          if (this.style === "mist" && cycle === 1 && p.activity > 0.4) {
+            const midi = closest(pool, root + (f.asymmetry > 0 ? 12 : 7));
+            this.note(
+              slot,
+              frame,
+              time + period * 0.6,
+              midi,
+              beat * 1.8,
+              velocity * 0.28,
+              sample * 0.4,
+              beat * 0.45,
+              false,
+              "cloud-answer"
+            );
+          }
+          this.next.set(slot.id, time + period);
+        } else if (preset(slot.patch.preset).family === "percussion") {
+          const hit = pulse(cell, p.pulses, p.length, p.rotation);
+          const ghost = !hit && p.activity > 0.55 && pulse(cell, 2, 7, p.generation % 7);
+          const closingRest = cell >= p.length - 2 && p.generation % 2 === 1;
+          if ((hit || ghost) && !closingRest) {
+            const position = Math.round(clamp(p.home + p.motif[cell % p.motif.length] + sample * 2, 0, pool.length - 1));
+            this.note(
+              slot,
+              frame,
+              time,
+              pool[position],
+              beat * (ghost ? 0.35 : 0.8),
+              velocity * (ghost ? 0.4 : cell % 4 === 0 ? 1 : 0.77),
+              -0.25 + sample * 0.12,
+              void 0,
+              false,
+              ghost ? "cross-rhythm-ghost" : "signal-pulse",
+              0.25
+            );
+          }
+          this.next.set(slot.id, time + beat * (1 + (cell % 2 ? -p.swing : p.swing)));
+        } else {
+          const answer = cell >= p.length / 2;
+          const count = Math.round(3 + p.activity * 3);
+          const onset = pulse(cell, count, p.length - 2, p.rotation + 2);
+          if (cell < p.length - 2 && onset) {
+            const motifStep = wrap(answer ? p.motif.length - 1 - cell : cell, p.motif.length);
+            const inversion = answer && intent.contour < 0 ? -1 : 1;
+            const degree = cell >= p.length - 4 ? 0 : p.motif[motifStep] * inversion;
+            const target = pool[Math.round(clamp(p.home + degree, 0, pool.length - 1))];
+            const previous = this.previousPitch.get(slot.id);
+            const nearby = previous === void 0 ? pool : pool.filter((n) => Math.abs(n - previous) <= 7);
+            const midi = closest(nearby.length ? nearby : pool, target);
+            this.previousPitch.set(slot.id, midi);
+            let space = 1;
+            while (cell + space < p.length - 2 && !pulse(cell + space, count, p.length - 2, p.rotation + 2)) space++;
+            const legato = sample > 0 || cell >= p.length - 4;
+            const duration = beat * Math.min(space * (legato ? 0.86 : 0.48), 3);
+            this.note(
+              slot,
+              frame,
+              time,
+              midi,
+              duration,
+              velocity * (answer ? 0.86 : 0.96),
+              0.22 + f.asymmetry * 0.12,
+              void 0,
+              false,
+              cell >= p.length - 4 ? "motif-resolution" : answer ? "motif-answer" : "motif-question",
+              legato ? 0.8 : 0.3
+            );
+            if (f.novelty > 0.55 && space >= 2 && cell % 4 === 0) {
+              const neighbor = pool[Math.round(clamp(pool.indexOf(midi) + (intent.contour < 0 ? -1 : 1), 0, pool.length - 1))];
+              if (neighbor !== midi) this.note(
+                slot,
+                frame,
+                time + beat * 0.65,
+                neighbor,
+                beat * 0.4,
+                velocity * 0.48,
+                0.3,
+                void 0,
+                false,
+                "signal-ornament",
+                0.15
+              );
+            }
+          }
+          this.next.set(slot.id, time + beat * (1 + (cell % 2 ? -p.swing : p.swing)));
+        }
+        this.steps.set(slot.id, step + 1);
+      }
+    }
+    greet(frame) {
+      var _a, _b;
+      const slots = soundSlots(this.config);
+      const slot = (_b = (_a = slots.find((s) => preset(s.patch.preset).family === "wind")) != null ? _a : slots.find((s) => s.kind === "instrument")) != null ? _b : slots[0];
+      const pool = notePool(slot.patch), at = Math.floor(pool.length * 0.6);
+      [0, 0.14, 0.3].forEach((delay, j) => this.note(
+        slot,
+        frame,
+        frame.time + delay,
+        pool[Math.min(pool.length - 1, at + j * 2)],
+        0.8,
+        65 - j * 7,
+        (j - 1) * 0.2,
+        void 0,
+        true
+      ));
+    }
+    audition(lane, time, slotId) {
+      const frame = {
+        time,
+        seq: -1,
+        center: 14,
+        level: 0,
+        spread: 0,
+        roughness: 0,
+        slope: 0,
+        spectrum: Array(9).fill(0),
+        profile: Array(10).fill(0),
+        cadence: 0
+      };
+      if (lane === "greeting") {
+        this.greet(frame);
+        return;
+      }
+      const slot = soundSlots(this.config).find((s) => slotId ? s.id === slotId : s.kind === lane);
+      if (!slot) return;
+      const pool = notePool(slot.patch);
+      this.note(slot, frame, time, pool[Math.floor(pool.length * 0.55)], lane === "synth" ? 3 : 1, 72, 0, lane === "synth" ? 1 : void 0);
+    }
+    finish(time) {
+      this.stopped = true;
+      this.events.push({ type: "release", time });
+    }
+    drain() {
+      const events = this.events;
+      this.events = [];
+      return events;
+    }
+  };
+
   // src/lib/sonora/rules/index.ts
-  var factories = { organic: (config) => new OrganicRules(config) };
+  var factories = {
+    organic: (config) => new OrganicRules(config),
+    mist: (config) => new EnsembleRules(config, "mist"),
+    grove: (config) => new EnsembleRules(config, "grove")
+  };
   var createRules = (config) => factories[mood(config.mood).rules](config);
 
   // src/lib/sonora/composer.ts
@@ -1260,8 +1642,14 @@ var Sonora = (() => {
       this.rules = createRules(this.config);
     }
     collect() {
+      var _a, _b, _c, _d;
       for (const event of this.rules.drain()) {
-        if (event.type === "note") event.note.id = this.serial++;
+        if (event.type === "note") {
+          event.note.id = this.serial++;
+          (_c = (_b = event.note).slot) != null ? _c : _b.slot = event.note.lane === "greeting" ? "$greeting" : (_a = soundSlots(this.config).find((s) => s.kind === event.note.lane)) == null ? void 0 : _a.id;
+        }
+        if (event.type === "release" && event.lane && !event.slot)
+          event.slot = event.lane === "greeting" ? "$greeting" : (_d = soundSlots(this.config).find((s) => s.kind === event.lane)) == null ? void 0 : _d.id;
         this.events.push(event);
       }
     }
@@ -1313,8 +1701,10 @@ var Sonora = (() => {
       this.rules.finish(time);
       this.collect();
     }
-    audition(lane, time) {
-      this.rules.audition(lane, time);
+    audition(target, time) {
+      var _a;
+      const slot = soundSlots(this.config).find((s) => s.id === target);
+      this.rules.audition((_a = slot == null ? void 0 : slot.kind) != null ? _a : target, time, slot == null ? void 0 : slot.id);
       this.collect();
     }
     drain() {
@@ -1424,7 +1814,7 @@ var Sonora = (() => {
       program === "choir_organ" ? "choir_aahs" : program,
       n.midi
     ), sample2 = program === "choir_organ" ? sampleFor("church_organ", n.midi) : null;
-    if (n.lane !== "synth" && !sample && !desc.model) return;
+    if (desc.kind !== "synth" && !sample && !desc.model) return;
     const frequency = n.patch.tuning * __pow(2, (n.midi - 69) / 12), flavor = desc.flavor;
     const design = synthVoice(n.patch.preset);
     const harmonics = design.harmonics.map(
@@ -1437,6 +1827,7 @@ var Sonora = (() => {
     for (let i = 0; i < harmonics.length; i++) harmonics[i] *= normalization;
     return {
       note: n,
+      channel: -1,
       sample,
       sample2,
       position: 0,
@@ -1484,7 +1875,8 @@ var Sonora = (() => {
       });
       __publicField(this, "targetExpression", this.expression);
       __publicField(this, "expressionBands", new Float64Array(9).fill(0.33));
-      __publicField(this, "buses");
+      __publicField(this, "buses", {});
+      __publicField(this, "channels", []);
       __publicField(this, "dcL", 0);
       __publicField(this, "dcR", 0);
       __publicField(this, "space", 0);
@@ -1493,13 +1885,19 @@ var Sonora = (() => {
       this.rate = rate;
       this.config = config;
       this.bank = bank;
-      this.buses = {
-        synth: new Effects(rate),
-        instrument: new Effects(rate),
-        greeting: new Effects(rate)
-      };
+      this.configure(config, bank);
     }
     configure(config, bank = this.bank) {
+      const channels = audioChannels(config);
+      if (channels.map((c) => c.id).join("|") !== this.channels.map((c) => c.id).join("|")) {
+        this.voices = [];
+        this.pending = [];
+        this.cancelled.clear();
+        this.buses = Object.fromEntries(channels.map((c) => [c.id, new Effects(this.rate)]));
+        this.duck = this.synthDuck = 1;
+        this.greetingAt = this.instrumentAt = -Infinity;
+      }
+      this.channels = channels;
       this.config = config;
       this.bank = bank;
     }
@@ -1510,8 +1908,10 @@ var Sonora = (() => {
     start(n) {
       const voice = prepareVoice(this.rate, this.bank, n);
       if (!voice) return;
+      voice.channel = this.channels.findIndex((c) => n.slot ? c.id === n.slot : c.kind === n.lane);
+      if (voice.channel < 0) return;
       const same = this.voices.filter(
-        (v) => v.note.lane === n.lane && v.forced === Infinity
+        (v) => v.channel === voice.channel && v.forced === Infinity
       );
       const limit2 = n.lane === "synth" ? 6 : n.lane === "instrument" ? 8 : 6;
       if (same.length >= limit2) same[0].forced = this.time + 0.025;
@@ -1525,14 +1925,9 @@ var Sonora = (() => {
       let expressionSlew = 1 - Math.exp(-1 / (((_a = this.targetExpression.smoothing) != null ? _a : 0.4) * this.rate));
       const duckAttack = 1 - Math.exp(-1 / (0.08 * this.rate));
       const duckRelease = 1 - Math.exp(-1 / (0.8 * this.rate));
-      const lanes = ["synth", "instrument", "greeting"];
-      const levels = [
-        this.config.synthLevel,
-        this.config.instrumentLevel,
-        this.config.greetingLevel
-      ];
-      const greetPatch = greetingPatch(this.config.instrument);
-      const patches = [this.config.synth, this.config.instrument, greetPatch];
+      const channels = this.channels;
+      const leftBus = new Float64Array(channels.length), rightBus = new Float64Array(channels.length);
+      const audibleInstrument = channels.some((c) => c.kind === "instrument" && c.level > 0);
       for (let i = 0; i < l.length; i++, this.cursor++) {
         const time = this.cursor / this.rate;
         while (at < this.pending.length && this.pending[at].time <= time) {
@@ -1541,20 +1936,20 @@ var Sonora = (() => {
             if (this.cancelled.has(e.note.id)) this.cancelled.delete(e.note.id);
             else {
               this.start(e.note);
-              if (e.note.lane === "instrument") this.instrumentAt = time;
+              if (e.note.lane === "instrument" && channels.some((c) => (e.note.slot ? c.id === e.note.slot : c.kind === e.note.lane) && c.level > 0)) this.instrumentAt = time;
             }
           } else if (e.type === "expression") {
             this.targetExpression = e.expression;
             expressionSlew = 1 - Math.exp(-1 / (Math.max(0.05, (_b = e.expression.smoothing) != null ? _b : 0.4) * this.rate));
           } else {
             for (const v of this.voices)
-              if (!e.lane || v.note.lane === e.lane) {
+              if (e.slot ? v.note.slot === e.slot : !e.lane || v.note.lane === e.lane) {
                 if (v.note.lane === "synth") v.stop = Math.min(v.stop, time);
                 else v.forced = Math.min(v.forced, time + 0.15);
               }
             for (let j = at; j < this.pending.length; j++) {
               const q = this.pending[j];
-              if (q.type === "note" && q.note.sourceTime <= e.time && (!e.lane || q.note.lane === e.lane))
+              if (q.type === "note" && q.note.sourceTime <= e.time && (e.slot ? q.note.slot === e.slot : !e.lane || q.note.lane === e.lane))
                 this.cancelled.add(q.note.id);
             }
           }
@@ -1565,7 +1960,8 @@ var Sonora = (() => {
         this.expression.direction += (this.targetExpression.direction - this.expression.direction) * expressionSlew;
         for (let band = 0; band < 9; band++)
           this.expressionBands[band] += (this.targetExpression.bands[band] - this.expressionBands[band]) * expressionSlew;
-        let sl = 0, sr = 0, il = 0, ir = 0, gl = 0, gr = 0;
+        leftBus.fill(0);
+        rightBus.fill(0);
         const brightness = clamp(this.expression.brightness), energy = clamp(this.expression.energy);
         for (const v of this.voices) {
           const age = time - v.note.time;
@@ -1630,35 +2026,33 @@ var Sonora = (() => {
           value *= envelope * v.gain;
           if (v.note.lane === "synth") {
             const drift = this.expression.direction * 0.13 + sin(age * 0.08 + v.note.pan) * 0.05;
-            sl += value * v.panL * (1 - drift);
-            sr += value * v.panR * (1 + drift);
-          } else if (v.note.lane === "instrument") {
-            il += value * v.panL;
-            ir += value * v.panR;
+            leftBus[v.channel] += value * v.panL * (1 - drift);
+            rightBus[v.channel] += value * v.panR * (1 + drift);
           } else {
-            gl += value * v.panL;
-            gr += value * v.panR;
+            leftBus[v.channel] += value * v.panL;
+            rightBus[v.channel] += value * v.panR;
           }
         }
         const duckTarget = time - this.greetingAt < 0.65 && this.config.greetingLevel > 0 ? 0.85 : 1;
         this.duck += (duckTarget - this.duck) * (duckTarget < this.duck ? duckAttack : duckRelease);
-        const synthDuckTarget = time - this.instrumentAt < 0.32 && this.config.instrumentLevel > 0 ? 0.62 : 1;
+        const synthDuckTarget = time - this.instrumentAt < 0.32 && audibleInstrument ? 0.62 : 1;
         this.synthDuck += (synthDuckTarget - this.synthDuck) * (synthDuckTarget < this.synthDuck ? duckAttack : duckRelease);
         let left = 0, right = 0;
-        for (let j = 0; j < 3; j++) {
-          const [bl, br] = this.buses[lanes[j]].process(
-            j === 0 ? sl : j === 1 ? il : gl,
-            j === 0 ? sr : j === 1 ? ir : gr,
-            patches[j],
-            j === 0 ? energy : 0,
-            j < 2 ? this.space : 0
+        for (let j = 0; j < channels.length; j++) {
+          const channel = channels[j], kind = channel.kind;
+          const [bl, br] = this.buses[channel.id].process(
+            leftBus[j],
+            rightBus[j],
+            channel.patch,
+            kind === "synth" ? energy : 0,
+            kind !== "greeting" ? this.space : 0
           );
-          const gain = levels[j] * (j < 2 ? this.duck : 1) * (j === 0 ? this.synthDuck : 1);
+          const gain = channel.level * (kind !== "greeting" ? this.duck : 1) * (kind === "synth" ? this.synthDuck : 1);
           left += bl * gain;
           right += br * gain;
           const peak = Math.max(Math.abs(bl * gain), Math.abs(br * gain));
-          if (j === 0) maxS = Math.max(maxS, peak);
-          else if (j === 1) maxI = Math.max(maxI, peak);
+          if (kind === "synth") maxS = Math.max(maxS, peak);
+          else if (kind === "instrument") maxI = Math.max(maxI, peak);
           else maxG = Math.max(maxG, peak);
         }
         this.dcL += (left - this.dcL) * dc;
