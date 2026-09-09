@@ -1,6 +1,7 @@
 import { AppState, Platform } from "react-native";
 import { isRunningInExpoGo } from "expo";
 import { useSyncExternalStore } from "react";
+import { GAP_SECONDS } from "./sonora/signal";
 import { copyPatch, defaultConfiguration, sanitizeConfiguration, type Patch, type Configuration } from "./sonora/presets";
 import type { PlantPacket } from "./plant-packet";
 import type { DiscoveredDevice, PlantConnection } from "./plant-connection";
@@ -65,7 +66,7 @@ class PlantSession {
     if (!this.foreground) return;
     const signal = !this.lastPacketAt
       ? "waiting"
-      : performance.now() - this.lastPacketAt > 1500
+      : performance.now() - this.lastPacketAt > GAP_SECONDS * 1000
         ? "gap"
         : "live";
     const hasNewPoints = this.graphRevision !== this.publishedGraphRevision;

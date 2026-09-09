@@ -4,3 +4,6 @@ export * from './gesture.ts';
 export * from './composer.ts';
 export * from './dsp.ts';
 export * from './synth-voices.ts';
+export * from './moods.ts';
+export * from './intent.ts';
+export * from './rules/index.ts';

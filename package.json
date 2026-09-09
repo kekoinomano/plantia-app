@@ -5,7 +5,8 @@
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start --dev-client",
-    "android": "expo run:android",
+    "android": "expo run:android --app-id com.plantia.app.dev",
+    "apk-android": "npm run sonora:build && cd android && ./gradlew assembleRelease",
     "ios": "expo run:ios",
     "ios:open": "expo start --dev-client --ios",
     "web": "expo start --web",

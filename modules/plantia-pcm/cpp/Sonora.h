@@ -42,7 +42,7 @@ struct Effects {
     size_t i=static_cast<size_t>(x);
     return double(b[i])+(double(b[(i+1)%b.size()])-b[i])*(x-i);
   }
-  std::array<double,2> process(double l,double r,const Patch& p,double movement=0) {
+  std::array<double,2> process(double l,double r,const Patch& p,double movement=0,double space=0) {
     double dt=.07+1.1*(1-p.delayRate/100), echoL=tap(dr,dt), echoR=tap(dl,dt*1.017);
     dl[at]=l+(p.delayOn?echoL*.32:0); dr[at]=r+(p.delayOn?echoR*.32:0);
     if(p.chorusOn) {
@@ -50,7 +50,7 @@ struct Effects {
       double cl=tap(dl,.018+sine(phase)*.003*depth), cr=tap(dr,.021+sine(phase+.25)*.003*depth);
       l=l*(1-depth*.35)+cl*depth*.35; r=r*(1-depth*.35)+cr*depth*.35;
     }
-    if(p.delayOn) {double wet=p.delayWet/100; l=l*(1-wet)+echoL*wet; r=r*(1-wet)+echoR*wet;}
+    if(p.delayOn) {double wet=clamp((p.delayWet+space*.5)/100); l=l*(1-wet)+echoL*wet; r=r*(1-wet)+echoR*wet;}
     double sum=0;
     for(int j=0;j<4;j++){damp[j]+=(lines[j][indices[j]]-damp[j])*.3;sum+=damp[j];}
     double feedback=.48+p.amount/100*.4;
@@ -62,7 +62,7 @@ struct Effects {
     double wetL=earlyL*.78+(damp[0]+damp[1]-damp[2]-damp[3])*.22;
     double wetR=earlyR*.78+(damp[0]-damp[1]+damp[2]-damp[3])*.22;
     at=(at+1)%dl.size();
-    if(p.reverbOn){double wet=p.reverbWet/100;l=l*(1-wet)+wetL*wet;r=r*(1-wet)+wetR*wet;}
+    if(p.reverbOn){double wet=clamp((p.reverbWet+space)/100);l=l*(1-wet)+wetL*wet;r=r*(1-wet)+wetR*wet;}
     return {l,r};
   }
 };
@@ -75,15 +75,15 @@ struct Voice {
   std::array<double,8> harmonics{}; std::array<double,4> ratios{};
   std::shared_ptr<std::vector<float>> sample, sample2;
 };
-struct Event {int type=0,lane=-1;double time=0; Voice voice; std::array<double,12> expression{};};
+struct Event {int type=0,lane=-1;double time=0,smoothing=.4; Voice voice; std::array<double,13> expression{};};
 class Core {
-  double rate,duck=1,synthDuck=1,greetingAt=-INF,instrumentAt=-INF,dcL=0,dcR=0;
+  double rate,duck=1,synthDuck=1,greetingAt=-INF,instrumentAt=-INF,dcL=0,dcR=0,smoothing=.4;
   uint64_t cursor=0;
   std::array<double,3> levels{1,1,1},meters{};
   std::array<Patch,3> patches;
   std::array<Effects,3> buses;
-  std::array<double,12> expression{.35,.3,0,.33,.33,.33,.33,.33,.33,.33,.33,.33};
-  std::array<double,12> target=expression;
+  std::array<double,13> expression{.35,.3,0,.33,.33,.33,.33,.33,.33,.33,.33,.33,0};
+  std::array<double,13> target=expression;
   std::unordered_map<int,std::shared_ptr<std::vector<float>>> samples;
   std::vector<Voice> voices; std::vector<Event> pending;
   std::unordered_set<double> cancelled;
@@ -123,8 +123,9 @@ public:
       v.phase=p[39];v.phase2=p[40];
       if(v.lane<0||v.lane>2)throw std::invalid_argument("Invalid lane");
     } else if(e.type==1) {
-      if(n!=14)throw std::invalid_argument("Invalid expression");
+      if(n!=14&&n!=16)throw std::invalid_argument("Invalid expression");
       std::copy(p+2,p+14,e.expression.begin());
+      if(n==16){e.expression[12]=clamp(p[14],-20,20);e.smoothing=std::max(.05,p[15]);}
     } else if(e.type==2) {
       if(n!=3)throw std::invalid_argument("Invalid release");e.lane=int(p[2]);
     } else throw std::invalid_argument("Invalid event type");
@@ -133,7 +134,7 @@ public:
   }
   void render(float* l,float* r,size_t frames) {
     size_t atEvent=0;std::array<double,3> maxima{};
-    double dc=1-std::exp(-TAU*18/rate),slew=1-std::exp(-1/(.18*rate));
+    double dc=1-std::exp(-TAU*18/rate),slew=1-std::exp(-1/(smoothing*rate));
     double duckAttack=1-std::exp(-1/(.08*rate)),duckRelease=1-std::exp(-1/(.8*rate));
     for(size_t i=0;i<frames;i++,cursor++) {
       double t=time();
@@ -149,7 +150,7 @@ public:
             if(e.voice.lane==2)greetingAt=t;
             if(e.voice.lane==1)instrumentAt=t;
           }
-        } else if(e.type==1)target=e.expression;
+        } else if(e.type==1){target=e.expression;smoothing=e.smoothing;slew=1-std::exp(-1/(smoothing*rate));}
         else {
           for(auto& v:voices)if(e.lane<0||v.lane==e.lane) {
             if(v.lane==0)v.stop=std::min(v.stop,t);else v.forced=std::min(v.forced,t+.15);
@@ -160,7 +161,7 @@ public:
           }
         }
       }
-      for(int j=0;j<12;j++)expression[j]+=(target[j]-expression[j])*slew;
+      for(int j=0;j<13;j++)expression[j]+=(target[j]-expression[j])*slew;
       double brightness=clamp(expression[0]),energy=clamp(expression[1]);
       std::array<double,3> left{},right{};
       for(auto& v:voices) {
@@ -202,14 +203,16 @@ public:
           double cutoff=std::min(rate*.18,(480+v.frequency*.65+brightness*brightness*1800+energy*420)*(.82+.18*sine(age*(.035+v.evolution*.12)+v.color)));
           v.filterState+=(value-v.filterState)*(1-std::exp(-TAU*cutoff/rate));value=v.filterState;
         }
+        /* Alternative wind-chime timbre (inactive).
         if(v.lane==2) {
           value=0;
-          constexpr double ratios[]={1,2.76,5.4,8.93},weights[]={.78,.2,.075,.025};
+          constexpr double ratios[]={1,2.76,5.4,8.93},weights[]={.65,.26,.1,.04};
           for(int k=0;k<4;k++) {
             if(v.frequency*ratios[k]<rate*.42)
-              value+=sine(age*v.frequency*ratios[k])*std::exp(-age/(.85/(1+k*1.5)))*weights[k];
+              value+=(sine(age*v.frequency*ratios[k])*.7+sine(age*v.frequency*ratios[k]*1.0015)*.3)*std::exp(-age/(.48/(1+k*1.2)))*weights[k];
           }
         }
+        */
         value*=envelope*v.gain;
         if(v.lane==0) {
           double drift=expression[2]*.13+sine(age*.08+v.pan)*.05;
@@ -222,12 +225,12 @@ public:
       synthDuck+=(synthDuckTarget-synthDuck)*(synthDuckTarget<synthDuck?duckAttack:duckRelease);
       double outL=0,outR=0;
       for(int j=0;j<3;j++) {
-        auto b=buses[j].process(left[j],right[j],patches[j],j==0?energy:0);double gain=levels[j]*(j<2?duck:1)*(j==0?synthDuck:1);
+        auto b=buses[j].process(left[j],right[j],patches[j],j==0?energy:0,j<2?expression[12]:0);double gain=levels[j]*(j<2?duck:1)*(j==0?synthDuck:1);
         outL+=b[0]*gain;outR+=b[1]*gain;
         maxima[j]=std::max(maxima[j],std::max(std::abs(b[0]*gain),std::abs(b[1]*gain)));
       }
       dcL+=(outL-dcL)*dc;dcR+=(outR-dcR)*dc;
-      l[i]=std::tanh((outL-dcL)*1.65)*.9;r[i]=std::tanh((outR-dcR)*1.65)*.9;
+      l[i]=std::tanh((outL-dcL)*4.125)*.9;r[i]=std::tanh((outR-dcR)*4.125)*.9;
       if(cursor%128==0)voices.erase(std::remove_if(voices.begin(),voices.end(),[t](const Voice&v){return !(t<std::min(v.stop+v.release,v.forced));}),voices.end());
     }
     pending.erase(pending.begin(),pending.begin()+atEvent);

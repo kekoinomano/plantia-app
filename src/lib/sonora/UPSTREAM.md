@@ -1,5 +1,9 @@
 # Sonora core v1
 
+La arquitectura vigente de moods, reloj musical y modulación está descrita en
+[ARCHITECTURE.md](./ARCHITECTURE.md). Las reglas originales viven ahora en
+`rules/organic.ts`; `composer.ts` coordina la señal y el reloj.
+
 Núcleo independiente de plataforma escrito en TypeScript. No importa React, DOM, Bluetooth, SQLite, AudioContext ni AudioWorklet. Sus cinco piezas son presets JSON, análisis de diez valores ordenados, detector de cambios, compositor de eventos y renderizador PCM estéreo. `index.ts` es el punto de entrada.
 
 ## Contrato
@@ -68,7 +72,7 @@ Los porcentajes son controles normalizados propios de Sonora. La tabla original 
 
 Este paquete es extraíble; no es un plugin Flutter nativo ni un binario Android/iOS. Una adaptación puede portar `signal`, `gesture`, `composer` y `dsp` conservando el JSON y los eventos. La aplicación nativa debe decodificar los assets, entregar PCM, ejecutar el callback con el reloj correcto y gestionar foco/suspensión/auriculares. No trasladar red, React o SQLite al hilo de audio. Para una versión de producción móvil conviene sustituir las pequeñas asignaciones de JS por estructuras preasignadas y medir en móviles modestos.
 
-El banco comprimido completo ocupa 1.489.480 bytes; el PCM decodificado ocupa más RAM. El adaptador web mantiene solo el banco elegido y el arpa, y envía nuevas muestras al Worklet solo al cambiar de instrumento. Esta cifra no incluye el runtime de una futura app Flutter. La exportación WAV tiene memoria proporcional a su duración; el directo no almacena toda la sesión.
+El banco comprimido incluye las muestras originales y 223.019 bytes de percusión adicional; el PCM decodificado ocupa más RAM. El adaptador mantiene solo el banco elegido, que también usa el saludo. La exportación WAV tiene memoria proporcional a su duración; el directo no almacena toda la sesión.
 
 ## Créditos y validación
 

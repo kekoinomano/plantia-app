@@ -1,4 +1,6 @@
-import { GAP_SECONDS, median, type Frame } from './signal.ts';
+import { median, type Frame } from './signal.ts';
+// Touch confirmation must stay brief even when sparse telemetry is still live.
+const GAP_SECONDS = 1.5;
 /** Detects coherent brief excursions, not their biological cause. Two frames reject isolated packet glitches. */
 export function createGestureDetector() {
   let previous: Frame | null = null,

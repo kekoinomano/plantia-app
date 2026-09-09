@@ -13,6 +13,8 @@ export type DiscoveredDevice = {
 };
 
 const isPlant = (device: Device) => (device.serviceUUIDs ?? []).includes(PLANT_SERVICE);
+const isNamedPlantia = (device: Device) =>
+  [device.name, device.localName].some((name) => name?.trim().toLowerCase() === "plantia");
 
 export class PlantConnection {
   private manager = new BleManager();
@@ -75,10 +77,10 @@ export class PlantConnection {
 
   private list(): DiscoveredDevice[] {
     return [...this.found.values()]
-      .filter((device) => isPlant(device) || Boolean(device.name || device.localName))
+      .filter(isNamedPlantia)
       .map((device) => ({
         id: device.id,
-        name: device.name || device.localName || "Sensor de planta",
+        name: "Plantia",
         rssi: device.rssi ?? null,
         plant: isPlant(device),
       }))
@@ -102,7 +104,7 @@ export class PlantConnection {
         onError(error.message || "No se pudo buscar dispositivos Bluetooth.");
         return;
       }
-      if (!device || this.found.has(device.id)) return;
+      if (!device || !isNamedPlantia(device) || this.found.has(device.id)) return;
       this.found.set(device.id, device);
       onDevices(this.list());
     });

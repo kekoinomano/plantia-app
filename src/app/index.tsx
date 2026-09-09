@@ -103,7 +103,7 @@ export default function HomeScreen() {
           <View style={styles.devices}>
             <View style={styles.devicesHeader}>
               <Text style={styles.devicesTitle}>
-                {scanning ? "Sensores cerca de ti" : "Conectando…"}
+                {scanning ? "Plantia cerca de ti" : "Conectando…"}
               </Text>
               <Text style={styles.tiny}>
                 {scanning
@@ -117,7 +117,7 @@ export default function HomeScreen() {
               <View style={styles.devicesEmpty}>
                 <ActivityIndicator color={colors.green} />
                 <Text style={styles.devicesEmptyText}>
-                  Buscando sensores Bluetooth cercanos…
+                  Buscando Plantia…
                 </Text>
               </View>
             ) : (
@@ -132,17 +132,13 @@ export default function HomeScreen() {
                       style={({ pressed }) => [styles.deviceRow, pressed && styles.deviceRowPressed]}
                     >
                       <Icon
-                        name={device.plant ? "leaf" : "bluetooth"}
+                        name="leaf"
                         size={17}
-                        color={device.plant ? colors.green : colors.muted}
+                        color={colors.green}
                       />
                       <View style={styles.deviceInfo}>
                         <Text numberOfLines={1} style={styles.deviceName}>
                           {device.name}
-                        </Text>
-                        <Text style={styles.deviceMeta}>
-                          {device.plant ? "sensor de planta" : "dispositivo"}
-                          {device.rssi !== null ? ` · ${device.rssi} dBm` : ""}
                         </Text>
                       </View>
                       <Icon name="chevron" size={15} color={colors.muted} />

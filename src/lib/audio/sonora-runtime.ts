@@ -60,7 +60,7 @@ var Sonora = (() => {
   }
   var signedLog = (x) => Math.sign(x) * Math.log2(1 + Math.abs(x));
   var BIN_MS = 250;
-  var GAP_SECONDS = 1.5;
+  var GAP_SECONDS = 6;
   function describe(values, time, seq, cadence) {
     const log = values.map(signedLog), center = median(log);
     const residual = log.map((x) => Math.tanh((x - center) * 2) / 2);
@@ -151,6 +151,432 @@ var Sonora = (() => {
       get pendingFrames() {
         return bucket.length;
       }
+    };
+  }
+
+  // src/lib/sonora/moods.ts
+  var MOODS = [{
+    id: "organic",
+    name: "Org\xE1nico",
+    rules: "organic",
+    sounds: { synth: "healing", instrument: "harp" },
+    modulation: { brightness: 0.3, energy: 0.25, space: 8, smoothing: 0.4 }
+  }];
+  var mood = (id) => {
+    var _a;
+    return (_a = MOODS.find((m) => m.id === id)) != null ? _a : MOODS[0];
+  };
+
+  // src/lib/sonora/presets.ts
+  var SCALES = {
+    Chromatic: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+    Ionian: [0, 2, 4, 5, 7, 9, 11],
+    Doric: [0, 2, 3, 5, 7, 9, 10],
+    Phrygian: [0, 1, 3, 5, 7, 8, 10],
+    Lydian: [0, 2, 4, 6, 7, 9, 11],
+    Mixolydian: [0, 2, 4, 5, 7, 9, 10],
+    Aeolian: [0, 2, 3, 5, 7, 8, 10],
+    Locrio: [0, 1, 3, 5, 6, 8, 10],
+    "Major third": [0, 4, 8],
+    "Minor third": [0, 3, 6, 9],
+    Fifth: [0, 7],
+    "Major Blues": [0, 2, 3, 4, 7, 9],
+    "Minor Blues": [0, 3, 5, 6, 7, 10],
+    Diminish: [0, 2, 3, 5, 6, 8, 9, 11],
+    "Maj Pentatonic": [0, 2, 4, 7, 9],
+    "Min Pentatonic": [0, 3, 5, 7, 10],
+    Spanish: [0, 1, 4, 5, 7, 8, 10],
+    Gypsy: [0, 2, 3, 6, 7, 8, 11],
+    Arabian: [0, 2, 4, 5, 6, 8, 10],
+    Indian: [0, 1, 4, 5, 7, 8, 11],
+    Ryukyu: [0, 4, 5, 7, 11],
+    wholetone: [0, 2, 4, 6, 8, 10]
+  };
+  var synths = [
+    ["Healing", "Ionian", "2-6", "30/99", "57/86", "-", "50/99"],
+    ["Enlightenment", "Maj Pentatonic", "3-5", "25/99", "84/75", "-", "0/99"],
+    ["Chakra", "Ionian", "2-5", "84/81", "95/92", "-", "50/15"],
+    ["Beauty", "Lydian", "3-6", "95/69", "73/99", "95/86", "100/15"],
+    ["Astral", "Lydian", "3-6", "52/63", "41/63", "52/63", "100/15"],
+    ["Connection", "Min Pentatonic", "2-4", "19/99", "100/99", "100/99", "0/99"],
+    ["Illusion", "Ionian", "3-5", "84/86", "100/99", "84/98", "82/99"],
+    ["Space Time", "Doric", "2-5", "79/81", "52/86", "-", "100/9"],
+    ["Meditation", "0,3,7", "2-5", "73/92", "30/99", "-", "39/99"],
+    ["Energy", "Lydian", "3-5", "95/92", "73/52", "100/98", "60/38"],
+    ["Mistery", "Ionian", "2-5", "73/63", "41/75", "-", "100/26"],
+    ["Flower", "Locrio", "3-5", "8/99", "24/99", "73/86", "100/61"],
+    ["Seed", "Maj Pentatonic", "3-5", "68/75", "-", "95/75", "39/61"],
+    ["Crystal", "Gypsy", "4-6", "63/58", "73/86", "-", "100/21"],
+    ["Mandala", "Min Pentatonic", "2-5", "41/99", "100/98", "100/99", "100/3"],
+    ["Peace", "2,3,5,6", "3-5", "100/92", "41/75", "95/86", "50/0"],
+    ["Sun", "Doric", "3-6", "95/86", "100/99", "73/86", "100/21"],
+    ["Lead", "Min Pentatonic", "3-5", "73/75", "100/99", "73/11", "50/73"],
+    ["Infinity", "Maj Pentatonic", "3-6", "14/99", "52/86", "95/52", "100/26"],
+    ["Non Duality", "Ryukyu", "3-5", "90/34", "19/99", "73/63", "100/9"]
+  ];
+  var instruments = [
+    ["Bongos", "0,1", "4-4", "-", "12/20", "-", "12/0", "bongos"],
+    ["Congas", "2,3,4", "4-4", "-", "14/25", "-", "16/0", "congas"],
+    ["Timbales", "5,6", "4-4", "-", "12/20", "-", "12/0", "timbales"],
+    ["Maracas", "10", "4-4", "-", "8/15", "-", "8/0", "maracas"],
+    ["Taiko", "Min Pentatonic", "2-4", "-", "18/30", "-", "20/0", "taiko_drum"],
+    ["Timpani", "Ionian", "2-4", "-", "20/35", "-", "25/0", "timpani"],
+    ["Kalimba", "Maj Pentatonic", "3-5", "10/92", "20/30", "-", "25/0", "kalimba"],
+    [
+      "Pan Flute",
+      "Maj Pentatonic",
+      "2-4",
+      "14/86",
+      "-",
+      "-",
+      "50/26",
+      "pan_flute"
+    ],
+    [
+      "Hang Drum",
+      "0,2,3,6,7,10",
+      "1-6",
+      "14/99",
+      "-",
+      "-",
+      "100/0",
+      "steel_drums"
+    ],
+    ["Koshi", "Ryukyu", "1-3", "35/93", "19/75", "79/81", "100/0", "model:chime"],
+    [
+      "Church Organ",
+      "Mixolydian",
+      "1-4",
+      "8/99",
+      "84/75",
+      "-",
+      "50/26",
+      "church_organ"
+    ],
+    [
+      "Pianoforte",
+      "Lydian",
+      "2-5",
+      "19/99",
+      "52/75",
+      "-",
+      "100/0",
+      "acoustic_grand_piano"
+    ],
+    ["Woodwinds", "Locrio", "1-4", "8/99", "-", "-", "100/0", "oboe"],
+    ["Marimba", "Lydian", "1-4", "3/99", "41/52", "-", "100/0", "marimba"],
+    ["Tibetan Bell", "Locrio", "1-3", "3/99", "-", "-", "100/0", "model:bowl"],
+    ["Xilophone", "Ryukyu", "1-4", "25/40", "84/86", "-", "100/0", "xylophone"],
+    ["Sitar", "0,1,4,7,10", "2-6", "30/99", "100/99", "73/40", "0/99", "sitar"],
+    [
+      "Mixed Choir",
+      "Locrio",
+      "2-6",
+      "8/99",
+      "19/17",
+      "-",
+      "100/73",
+      "choir_aahs"
+    ],
+    [
+      "Metal Bell",
+      "Ionian",
+      "1-5",
+      "14/99",
+      "41/75",
+      "-",
+      "100/0",
+      "tubular_bells"
+    ],
+    [
+      "Choir and Organ",
+      "Lydian",
+      "1-4",
+      "8/99",
+      "30/52",
+      "-",
+      "100/73",
+      "choir_organ"
+    ],
+    [
+      "Brass Ensemble",
+      "Aeolian",
+      "1-5",
+      "3/99",
+      "25/40",
+      "-",
+      "100/38",
+      "brass_section"
+    ],
+    [
+      "Orchestal Strings",
+      "Aeolian",
+      "1-4",
+      "3/99",
+      "25/40",
+      "-",
+      "100/73",
+      "string_ensemble_1"
+    ],
+    [
+      "Guitar",
+      "Min Pentatonic",
+      "2-5",
+      "41/29",
+      "25/34",
+      "30/17",
+      "100/0",
+      "acoustic_guitar_nylon"
+    ],
+    [
+      "Harp",
+      "Lydian",
+      "2-6",
+      "19/99",
+      "41/86",
+      "84/29",
+      "100/0",
+      "orchestral_harp"
+    ]
+  ];
+  var pair = (s) => s === "-" ? [0, 0] : s.split("/").map(Number);
+  var percussionHits = {
+    bongos: [60, 61],
+    congas: [62, 63, 64],
+    timbales: [65, 66],
+    maracas: [70]
+  };
+  function make(row, kind, flavor) {
+    var _a;
+    const [name, scale, oct, del, rev, cho, env, source] = row, id = name.toLowerCase().replaceAll(" ", "-");
+    const [dw, dr] = pair(del), [rw, ra] = pair(rev), [cd, cr] = pair(cho), [er, ea] = pair(env);
+    return {
+      id,
+      name,
+      kind,
+      flavor,
+      percussion: source ? percussionHits[source] : void 0,
+      description: source && percussionHits[source] ? "Percusi\xF3n \xB7 golpes originales sin transposici\xF3n" : ["taiko_drum", "timpani", "kalimba"].includes(source != null ? source : "") ? "Percusi\xF3n afinada" : void 0,
+      program: (source == null ? void 0 : source.startsWith("model:")) ? void 0 : source,
+      model: (source == null ? void 0 : source.startsWith("model:")) ? source.slice(6) : void 0,
+      patch: {
+        preset: id,
+        scale: SCALES[scale] ? scale : "Custom",
+        notes: [...(_a = SCALES[scale]) != null ? _a : scale.split(",").map(Number)],
+        octaves: oct.split("-").map(Number),
+        tuning: 440,
+        velocity: { range: 127, center: 72 },
+        delay: { on: del !== "-", wet: dw, rate: dr },
+        reverb: { on: rev !== "-", wet: rw, amount: ra },
+        chorus: { on: cho !== "-", depth: cd, rate: cr },
+        envelope: { on: env !== "-", release: er, attack: ea }
+      }
+    };
+  }
+  var SYNTHS = synths.map((r, i) => make(r, "synth", i));
+  var INSTRUMENTS = instruments.map((r, i) => make(r, "instrument", i));
+  var PRESETS = [...SYNTHS, ...INSTRUMENTS];
+  var preset = (id) => {
+    var _a;
+    return (_a = PRESETS.find((p) => p.id === id)) != null ? _a : SYNTHS[0];
+  };
+  var copyPatch = (id) => JSON.parse(JSON.stringify(preset(id).patch));
+  function defaultConfiguration() {
+    return {
+      version: 1,
+      mood: "organic",
+      plantResponse: 1,
+      synth: copyPatch("healing"),
+      instrument: copyPatch("harp"),
+      synthMotion: { transition: 4.5, stability: 78 },
+      speed: 1,
+      synthLevel: 0.55,
+      instrumentLevel: 0.95,
+      greetingLevel: 1
+    };
+  }
+  var limit = (n, a, b) => Number.isFinite(n) ? Math.max(a, Math.min(b, n)) : a;
+  function sanitizeConfiguration(input) {
+    var _a, _b, _c, _d;
+    const c = JSON.parse(JSON.stringify(input));
+    c.mood = mood(c.mood).id;
+    c.plantResponse = limit((_a = c.plantResponse) != null ? _a : 1, 0, 1);
+    const synthMotion = c.synthMotion;
+    c.synthMotion = {
+      transition: limit((_c = (_b = synthMotion == null ? void 0 : synthMotion.transition) != null ? _b : synthMotion == null ? void 0 : synthMotion.glide) != null ? _c : 4.5, 1, 8),
+      stability: limit((_d = synthMotion == null ? void 0 : synthMotion.stability) != null ? _d : 78, 0, 100)
+    };
+    for (const lane of ["synth", "instrument"]) {
+      const p = c[lane];
+      if (!PRESETS.some((x) => x.id === p.preset && x.kind === lane))
+        throw Error("Preset no v\xE1lido");
+      p.notes = [
+        ...new Set(
+          p.notes.filter((n) => Number.isInteger(n) && n >= 0 && n < 12)
+        )
+      ].sort((a, b) => a - b);
+      if (!p.notes.length) throw Error("Selecciona al menos una nota");
+      p.octaves = [
+        Math.round(limit(p.octaves[0], 1, 6)),
+        Math.round(limit(p.octaves[1], 1, 6))
+      ].sort((a, b) => a - b);
+      p.tuning = limit(p.tuning, 392, 494);
+      for (const effect of [p.delay, p.reverb, p.chorus, p.envelope])
+        for (const key of Object.keys(effect))
+          if (key !== "on")
+            effect[key] = limit(
+              effect[key],
+              0,
+              100
+            );
+      p.velocity = {
+        range: limit(p.velocity.range, 0, 127),
+        center: limit(p.velocity.center, 0, 127)
+      };
+    }
+    c.speed = limit(c.speed, 0.25, 2);
+    c.synthLevel = limit(c.synthLevel, 0, 1);
+    c.instrumentLevel = limit(c.instrumentLevel, 0, 1);
+    c.greetingLevel = limit(c.greetingLevel, 0, 1);
+    c.version = 1;
+    return c;
+  }
+  function notePool(p) {
+    const hits = preset(p.preset).percussion;
+    if (hits) return [...hits];
+    const notes = [];
+    for (let o = p.octaves[0]; o <= p.octaves[1]; o++)
+      for (const n of p.notes) notes.push(12 * (o + 1) + n);
+    return notes;
+  }
+  function greetingPatch(instrument) {
+    return __spreadProps(__spreadValues({}, instrument), {
+      delay: { on: true, wet: 12, rate: 92 },
+      reverb: { on: true, wet: 18, amount: 20 },
+      chorus: { on: true, depth: 12, rate: 18 },
+      envelope: { on: true, attack: 0, release: 10 }
+    });
+  }
+
+  // src/lib/sonora/gesture.ts
+  var GAP_SECONDS2 = 1.5;
+  function createGestureDetector() {
+    let previous = null, began = 0, lastGreeting = -Infinity;
+    let history = [];
+    let candidate = null;
+    let active = null;
+    return {
+      get engaged() {
+        return candidate !== null || active !== null;
+      },
+      push(frame) {
+        const gap = previous !== null && frame.time - previous.time > GAP_SECONDS2;
+        if (!previous || gap) {
+          previous = frame;
+          began = frame.time;
+          history = [];
+          candidate = null;
+          active = null;
+        }
+        const step = Math.abs(frame.center - previous.center);
+        previous = frame;
+        history = history.filter((p) => frame.time - p.time <= 6);
+        if (active) {
+          const returned = Math.abs(frame.center - active.baseline) < Math.max(0.06, active.contrast * 0.18);
+          active.settled = returned ? active.settled + 1 : 0;
+          if (active.settled >= 2 || frame.time - active.time > 8) {
+            active = null;
+            candidate = null;
+            history = [];
+          }
+          return null;
+        }
+        const baseline = history.length ? median(history.map((p) => p.center)) : frame.center;
+        const noise = median(history.map((p) => p.step));
+        const threshold = Math.max(0.13, noise * 9);
+        const deviation = Math.abs(frame.center - baseline);
+        if (candidate) {
+          const contrast = Math.abs(candidate.center - candidate.baseline);
+          const sameDirection = Math.sign(frame.center - candidate.baseline) === Math.sign(candidate.center - candidate.baseline);
+          if (frame.time - candidate.time <= GAP_SECONDS2 && sameDirection && Math.abs(frame.center - candidate.baseline) > contrast * 0.3) {
+            active = {
+              baseline: candidate.baseline,
+              contrast,
+              time: frame.time,
+              settled: 0
+            };
+            candidate = null;
+            lastGreeting = frame.time;
+            return { contrast, source: frame.seq, time: frame.time };
+          }
+          candidate = null;
+        }
+        if (frame.time - began >= 0.75 && frame.time - lastGreeting >= 3 && step > threshold && deviation > threshold) {
+          candidate = { baseline, center: frame.center, time: frame.time };
+          return null;
+        }
+        history.push({ time: frame.time, center: frame.center, step });
+        return null;
+      }
+    };
+  }
+
+  // src/lib/sonora/intent.ts
+  var PlantInterpreter = class {
+    constructor() {
+      __publicField(this, "previous", null);
+      __publicField(this, "baseline", 0);
+      __publicField(this, "character", { level: 0.5, pace: 0.5, variation: 0, texture: 0 });
+      __publicField(this, "gesture", createGestureDetector());
+    }
+    push(f) {
+      const first = !this.previous;
+      const delta = first ? 0 : f.center - this.previous.center;
+      const dt = first ? 0.25 : Math.max(1e-3, f.time - this.previous.time);
+      const measured = {
+        level: clamp((f.center + 2) / 24),
+        pace: 1 / (1 + Math.max(1e-3, f.cadence) / 0.12),
+        variation: Math.abs(delta) / (Math.abs(delta) + dt * 0.12),
+        texture: f.spread / (f.spread + 0.08)
+      };
+      const follow = first ? 1 : 1 - Math.exp(-dt / 4);
+      for (const key of ["level", "pace", "variation", "texture"])
+        this.character[key] += (measured[key] - this.character[key]) * follow;
+      this.baseline = first ? f.center : this.baseline + (f.center - this.baseline) * (1 - Math.exp(-dt / 3));
+      const profileScale = Math.max(4e-3, f.spread);
+      const bandSum = Math.max(1e-4, f.spectrum.reduce((sum, x) => sum + x, 0));
+      const shape = f.spectrum.reduce((sum, x, i) => sum + x * (i + 1), 0) / Math.max(1e-8, f.spectrum.reduce((sum, x) => sum + x, 0)) / 9;
+      this.previous = f;
+      return {
+        frame: f,
+        character: __spreadValues({}, this.character),
+        profileScale,
+        shape,
+        motion: 1 - Math.exp(-Math.abs(delta) * 24 - f.roughness * 8),
+        detail: 1 - Math.exp(-f.spread * 18),
+        bands: f.spectrum.map((x) => Math.sqrt(x / bandSum)),
+        contour: Math.tanh((f.center - this.baseline) * 60 + f.slope * 35),
+        position: clamp(0.1 + this.character.level * 0.65 + (this.character.pace - 0.5) * 0.24 + (shape - 0.5) * 0.22, 0.12, 0.88),
+        greeting: Boolean(this.gesture.push(f))
+      };
+    }
+  };
+
+  // src/lib/sonora/modulation.ts
+  function plantExpression(intent, config) {
+    var _a;
+    const { character: c, bands, frame, profileScale } = intent;
+    const ranges = mood(config.mood).modulation;
+    const amount = (_a = config.plantResponse) != null ? _a : 1;
+    const brightness = c.texture * 0.35 + c.level * 0.2 + c.variation * 0.25 + bands.slice(4).reduce((sum, x) => sum + x, 0) * 0.08;
+    const energy = c.variation * 0.4 + c.pace * 0.3 + c.texture * 0.3;
+    return {
+      brightness: clamp(0.35 + clamp(brightness - 0.35, -ranges.brightness, ranges.brightness) * amount),
+      energy: clamp(0.3 + clamp(energy - 0.3, -ranges.energy, ranges.energy) * amount),
+      direction: Math.tanh(frame.slope / profileScale) * amount,
+      bands: bands.map((x) => 0.33 + (x - 0.33) * amount),
+      space: (c.variation - 0.5) * 2 * ranges.space * amount,
+      smoothing: ranges.smoothing
     };
   }
 
@@ -501,335 +927,10 @@ var Sonora = (() => {
     return (_a = SYNTH_VOICES[id]) != null ? _a : SYNTH_VOICES.healing;
   };
 
-  // src/lib/sonora/gesture.ts
-  function createGestureDetector() {
-    let previous = null, began = 0, lastGreeting = -Infinity;
-    let history = [];
-    let candidate = null;
-    let active = null;
-    return {
-      get engaged() {
-        return candidate !== null || active !== null;
-      },
-      push(frame) {
-        const gap = previous !== null && frame.time - previous.time > GAP_SECONDS;
-        if (!previous || gap) {
-          previous = frame;
-          began = frame.time;
-          history = [];
-          candidate = null;
-          active = null;
-        }
-        const step = Math.abs(frame.center - previous.center);
-        previous = frame;
-        history = history.filter((p) => frame.time - p.time <= 6);
-        if (active) {
-          const returned = Math.abs(frame.center - active.baseline) < Math.max(0.06, active.contrast * 0.18);
-          active.settled = returned ? active.settled + 1 : 0;
-          if (active.settled >= 2 || frame.time - active.time > 8) {
-            active = null;
-            candidate = null;
-            history = [];
-          }
-          return null;
-        }
-        const baseline = history.length ? median(history.map((p) => p.center)) : frame.center;
-        const noise = median(history.map((p) => p.step));
-        const threshold = Math.max(0.13, noise * 9);
-        const deviation = Math.abs(frame.center - baseline);
-        if (candidate) {
-          const contrast = Math.abs(candidate.center - candidate.baseline);
-          const sameDirection = Math.sign(frame.center - candidate.baseline) === Math.sign(candidate.center - candidate.baseline);
-          if (frame.time - candidate.time <= GAP_SECONDS && sameDirection && Math.abs(frame.center - candidate.baseline) > contrast * 0.3) {
-            active = {
-              baseline: candidate.baseline,
-              contrast,
-              time: frame.time,
-              settled: 0
-            };
-            candidate = null;
-            lastGreeting = frame.time;
-            return { contrast, source: frame.seq, time: frame.time };
-          }
-          candidate = null;
-        }
-        if (frame.time - began >= 0.75 && frame.time - lastGreeting >= 3 && step > threshold && deviation > threshold) {
-          candidate = { baseline, center: frame.center, time: frame.time };
-          return null;
-        }
-        history.push({ time: frame.time, center: frame.center, step });
-        return null;
-      }
-    };
-  }
-
-  // src/lib/sonora/presets.ts
-  var SCALES = {
-    Chromatic: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
-    Ionian: [0, 2, 4, 5, 7, 9, 11],
-    Doric: [0, 2, 3, 5, 7, 9, 10],
-    Phrygian: [0, 1, 3, 5, 7, 8, 10],
-    Lydian: [0, 2, 4, 6, 7, 9, 11],
-    Mixolydian: [0, 2, 4, 5, 7, 9, 10],
-    Aeolian: [0, 2, 3, 5, 7, 8, 10],
-    Locrio: [0, 1, 3, 5, 6, 8, 10],
-    "Major third": [0, 4, 8],
-    "Minor third": [0, 3, 6, 9],
-    Fifth: [0, 7],
-    "Major Blues": [0, 2, 3, 4, 7, 9],
-    "Minor Blues": [0, 3, 5, 6, 7, 10],
-    Diminish: [0, 2, 3, 5, 6, 8, 9, 11],
-    "Maj Pentatonic": [0, 2, 4, 7, 9],
-    "Min Pentatonic": [0, 3, 5, 7, 10],
-    Spanish: [0, 1, 4, 5, 7, 8, 10],
-    Gypsy: [0, 2, 3, 6, 7, 8, 11],
-    Arabian: [0, 2, 4, 5, 6, 8, 10],
-    Indian: [0, 1, 4, 5, 7, 8, 11],
-    Ryukyu: [0, 4, 5, 7, 11],
-    wholetone: [0, 2, 4, 6, 8, 10]
-  };
-  var synths = [
-    ["Healing", "Ionian", "2-6", "30/99", "57/86", "-", "50/99"],
-    ["Enlightenment", "Maj Pentatonic", "3-5", "25/99", "84/75", "-", "0/99"],
-    ["Chakra", "Ionian", "2-5", "84/81", "95/92", "-", "50/15"],
-    ["Beauty", "Lydian", "3-6", "95/69", "73/99", "95/86", "100/15"],
-    ["Astral", "Lydian", "3-6", "52/63", "41/63", "52/63", "100/15"],
-    ["Connection", "Min Pentatonic", "2-4", "19/99", "100/99", "100/99", "0/99"],
-    ["Illusion", "Ionian", "3-5", "84/86", "100/99", "84/98", "82/99"],
-    ["Space Time", "Doric", "2-5", "79/81", "52/86", "-", "100/9"],
-    ["Meditation", "0,3,7", "2-5", "73/92", "30/99", "-", "39/99"],
-    ["Energy", "Lydian", "3-5", "95/92", "73/52", "100/98", "60/38"],
-    ["Mistery", "Ionian", "2-5", "73/63", "41/75", "-", "100/26"],
-    ["Flower", "Locrio", "3-5", "8/99", "24/99", "73/86", "100/61"],
-    ["Seed", "Maj Pentatonic", "3-5", "68/75", "-", "95/75", "39/61"],
-    ["Crystal", "Gypsy", "4-6", "63/58", "73/86", "-", "100/21"],
-    ["Mandala", "Min Pentatonic", "2-5", "41/99", "100/98", "100/99", "100/3"],
-    ["Peace", "2,3,5,6", "3-5", "100/92", "41/75", "95/86", "50/0"],
-    ["Sun", "Doric", "3-6", "95/86", "100/99", "73/86", "100/21"],
-    ["Lead", "Min Pentatonic", "3-5", "73/75", "100/99", "73/11", "50/73"],
-    ["Infinity", "Maj Pentatonic", "3-6", "14/99", "52/86", "95/52", "100/26"],
-    ["Non Duality", "Ryukyu", "3-5", "90/34", "19/99", "73/63", "100/9"]
-  ];
-  var instruments = [
-    [
-      "Pan Flute",
-      "Maj Pentatonic",
-      "2-4",
-      "14/86",
-      "-",
-      "-",
-      "50/26",
-      "pan_flute"
-    ],
-    [
-      "Hang Drum",
-      "0,2,3,6,7,10",
-      "1-6",
-      "14/99",
-      "-",
-      "-",
-      "100/0",
-      "steel_drums"
-    ],
-    ["Koshi", "Ryukyu", "1-3", "35/93", "19/75", "79/81", "100/0", "model:chime"],
-    [
-      "Church Organ",
-      "Mixolydian",
-      "1-4",
-      "8/99",
-      "84/75",
-      "-",
-      "50/26",
-      "church_organ"
-    ],
-    [
-      "Pianoforte",
-      "Lydian",
-      "2-5",
-      "19/99",
-      "52/75",
-      "-",
-      "100/0",
-      "acoustic_grand_piano"
-    ],
-    ["Woodwinds", "Locrio", "1-4", "8/99", "-", "-", "100/0", "oboe"],
-    ["Marimba", "Lydian", "1-4", "3/99", "41/52", "-", "100/0", "marimba"],
-    ["Tibetan Bell", "Locrio", "1-3", "3/99", "-", "-", "100/0", "model:bowl"],
-    ["Xilophone", "Ryukyu", "1-4", "25/40", "84/86", "-", "100/0", "xylophone"],
-    ["Sitar", "0,1,4,7,10", "2-6", "30/99", "100/99", "73/40", "0/99", "sitar"],
-    [
-      "Mixed Choir",
-      "Locrio",
-      "2-6",
-      "8/99",
-      "19/17",
-      "-",
-      "100/73",
-      "choir_aahs"
-    ],
-    [
-      "Metal Bell",
-      "Ionian",
-      "1-5",
-      "14/99",
-      "41/75",
-      "-",
-      "100/0",
-      "tubular_bells"
-    ],
-    [
-      "Choir and Organ",
-      "Lydian",
-      "1-4",
-      "8/99",
-      "30/52",
-      "-",
-      "100/73",
-      "choir_organ"
-    ],
-    [
-      "Brass Ensemble",
-      "Aeolian",
-      "1-5",
-      "3/99",
-      "25/40",
-      "-",
-      "100/38",
-      "brass_section"
-    ],
-    [
-      "Orchestal Strings",
-      "Aeolian",
-      "1-4",
-      "3/99",
-      "25/40",
-      "-",
-      "100/73",
-      "string_ensemble_1"
-    ],
-    [
-      "Guitar",
-      "Min Pentatonic",
-      "2-5",
-      "41/29",
-      "25/34",
-      "30/17",
-      "100/0",
-      "acoustic_guitar_nylon"
-    ],
-    [
-      "Harp",
-      "Lydian",
-      "2-6",
-      "19/99",
-      "41/86",
-      "84/29",
-      "100/0",
-      "orchestral_harp"
-    ]
-  ];
-  var pair = (s) => s === "-" ? [0, 0] : s.split("/").map(Number);
-  function make(row, kind, flavor) {
-    var _a;
-    const [name, scale, oct, del, rev, cho, env, source] = row, id = name.toLowerCase().replaceAll(" ", "-");
-    const [dw, dr] = pair(del), [rw, ra] = pair(rev), [cd, cr] = pair(cho), [er, ea] = pair(env);
-    return {
-      id,
-      name,
-      kind,
-      flavor,
-      program: (source == null ? void 0 : source.startsWith("model:")) ? void 0 : source,
-      model: (source == null ? void 0 : source.startsWith("model:")) ? source.slice(6) : void 0,
-      patch: {
-        preset: id,
-        scale: SCALES[scale] ? scale : "Custom",
-        notes: [...(_a = SCALES[scale]) != null ? _a : scale.split(",").map(Number)],
-        octaves: oct.split("-").map(Number),
-        tuning: 440,
-        velocity: { range: 127, center: 72 },
-        delay: { on: del !== "-", wet: dw, rate: dr },
-        reverb: { on: rev !== "-", wet: rw, amount: ra },
-        chorus: { on: cho !== "-", depth: cd, rate: cr },
-        envelope: { on: env !== "-", release: er, attack: ea }
-      }
-    };
-  }
-  var SYNTHS = synths.map((r, i) => make(r, "synth", i));
-  var INSTRUMENTS = instruments.map((r, i) => make(r, "instrument", i));
-  var PRESETS = [...SYNTHS, ...INSTRUMENTS];
-  var preset = (id) => {
-    var _a;
-    return (_a = PRESETS.find((p) => p.id === id)) != null ? _a : SYNTHS[0];
-  };
-  var copyPatch = (id) => JSON.parse(JSON.stringify(preset(id).patch));
-  function defaultConfiguration() {
-    return {
-      version: 1,
-      synth: copyPatch("healing"),
-      instrument: copyPatch("harp"),
-      synthMotion: { transition: 4.5, stability: 78 },
-      speed: 1,
-      synthLevel: 0.55,
-      instrumentLevel: 0.95,
-      greetingLevel: 1
-    };
-  }
-  var limit = (n, a, b) => Number.isFinite(n) ? Math.max(a, Math.min(b, n)) : a;
-  function sanitizeConfiguration(input) {
-    var _a, _b, _c;
-    const c = JSON.parse(JSON.stringify(input));
-    const synthMotion = c.synthMotion;
-    c.synthMotion = {
-      transition: limit((_b = (_a = synthMotion == null ? void 0 : synthMotion.transition) != null ? _a : synthMotion == null ? void 0 : synthMotion.glide) != null ? _b : 4.5, 1, 8),
-      stability: limit((_c = synthMotion == null ? void 0 : synthMotion.stability) != null ? _c : 78, 0, 100)
-    };
-    for (const lane of ["synth", "instrument"]) {
-      const p = c[lane];
-      if (!PRESETS.some((x) => x.id === p.preset && x.kind === lane))
-        throw Error("Preset no v\xE1lido");
-      p.notes = [
-        ...new Set(
-          p.notes.filter((n) => Number.isInteger(n) && n >= 0 && n < 12)
-        )
-      ].sort((a, b) => a - b);
-      if (!p.notes.length) throw Error("Selecciona al menos una nota");
-      p.octaves = [
-        Math.round(limit(p.octaves[0], 1, 6)),
-        Math.round(limit(p.octaves[1], 1, 6))
-      ].sort((a, b) => a - b);
-      p.tuning = limit(p.tuning, 392, 494);
-      for (const effect of [p.delay, p.reverb, p.chorus, p.envelope])
-        for (const key of Object.keys(effect))
-          if (key !== "on")
-            effect[key] = limit(
-              effect[key],
-              0,
-              100
-            );
-      p.velocity = {
-        range: limit(p.velocity.range, 0, 127),
-        center: limit(p.velocity.center, 0, 127)
-      };
-    }
-    c.speed = limit(c.speed, 0.25, 2);
-    c.synthLevel = limit(c.synthLevel, 0, 1);
-    c.instrumentLevel = limit(c.instrumentLevel, 0, 1);
-    c.greetingLevel = limit(c.greetingLevel, 0, 1);
-    c.version = 1;
-    return c;
-  }
-  function notePool(p) {
-    const notes = [];
-    for (let o = p.octaves[0]; o <= p.octaves[1]; o++)
-      for (const n of p.notes) notes.push(12 * (o + 1) + n);
-    return notes;
-  }
-
-  // src/lib/sonora/composer.ts
-  var Composer = class {
+  // src/lib/sonora/rules/organic.ts
+  var OrganicRules = class {
     constructor(config = defaultConfiguration()) {
       __publicField(this, "config");
-      __publicField(this, "gesture", createGestureDetector());
       __publicField(this, "events", []);
       __publicField(this, "previous", null);
       __publicField(this, "serial", 0);
@@ -837,10 +938,8 @@ var Sonora = (() => {
       __publicField(this, "lastSynth", -Infinity);
       __publicField(this, "synthPitch", -1);
       __publicField(this, "synthRegister", null);
-      __publicField(this, "baseline", 0);
       __publicField(this, "lastPitch", -1);
       __publicField(this, "stopped", false);
-      __publicField(this, "movement", 0);
       __publicField(this, "phrase", 0);
       __publicField(this, "nextLead", -Infinity);
       __publicField(this, "nextSynth", -Infinity);
@@ -848,7 +947,6 @@ var Sonora = (() => {
       __publicField(this, "rhythm", []);
       __publicField(this, "anchor", 0);
       __publicField(this, "synthStep", 0);
-      __publicField(this, "character", { level: 0.5, pace: 0.5, variation: 0, texture: 0 });
       this.config = sanitizeConfiguration(config);
     }
     configure(config, time) {
@@ -872,10 +970,7 @@ var Sonora = (() => {
       this.synthStep = 0;
     }
     emit(f, lane, midi, duration, velocity, pan, delay = 0, fade) {
-      const patch = lane === "greeting" ? __spreadProps(__spreadValues({}, copyPatch("koshi")), {
-        notes: [0, 2, 4, 7, 9],
-        tuning: this.config.instrument.tuning
-      }) : this.config[lane];
+      const patch = lane === "greeting" ? greetingPatch(this.config.instrument) : this.config[lane];
       const note = {
         id: this.serial++,
         time: f.time + delay,
@@ -893,62 +988,11 @@ var Sonora = (() => {
       this.events.push({ type: "note", time: note.time, note });
       return note;
     }
-    push(f) {
-      var _a;
-      if (this.stopped || this.previous && f.time <= this.previous.time) return;
-      const first = !this.previous, delta = first ? 0 : f.center - this.previous.center;
-      const gap = this.previous && f.time - this.previous.time > 1.5;
-      if (first || gap) {
-        this.baseline = f.center;
-        this.movement = 0;
-        this.phrase = 0;
-        this.lastLead = -Infinity;
-        this.nextLead = -Infinity;
-        this.lastPitch = -1;
-        this.motif = [];
-        this.resetSynth();
-      }
-      const gesture = this.gesture.push(f);
-      const motion = 1 - Math.exp(-Math.abs(delta) * 24 - f.roughness * 8), detail = 1 - Math.exp(-f.spread * 18);
-      const profileScale = Math.max(4e-3, f.spread);
-      const dt = first || gap ? 0.25 : f.time - this.previous.time;
-      const measured = {
-        level: clamp((f.center + 2) / 24),
-        pace: 1 / (1 + Math.max(1e-3, f.cadence) / 0.12),
-        variation: Math.abs(delta) / (Math.abs(delta) + dt * 0.12),
-        texture: f.spread / (f.spread + 0.08)
-      };
-      const follow = first || gap ? 1 : 1 - Math.exp(-dt / 4);
-      for (const key of ["level", "pace", "variation", "texture"])
-        this.character[key] += (measured[key] - this.character[key]) * follow;
-      const character = this.character;
-      const profileChange = first ? 0 : f.profile.reduce(
-        (sum, x, i) => sum + Math.abs(x - this.previous.profile[i]),
-        0
-      ) / (10 * profileScale);
-      this.movement += Math.abs(delta) * 12 + Math.min(1, profileChange) * 0.32;
-      const bandSum = Math.max(
-        1e-4,
-        f.spectrum.reduce((sum, x) => sum + x, 0)
-      );
-      const bands = f.spectrum.map((x) => Math.sqrt(x / bandSum));
-      this.events.push({
-        type: "expression",
-        time: f.time,
-        expression: {
-          brightness: character.texture * 0.35 + character.level * 0.2 + character.variation * 0.25 + bands.slice(4).reduce((a, b) => a + b, 0) * 0.08,
-          energy: character.variation * 0.4 + character.pace * 0.3 + character.texture * 0.3,
-          direction: Math.tanh(f.slope / profileScale),
-          bands
-        }
-      });
-      this.baseline += (f.center - this.baseline) * 0.08;
-      const shape = f.spectrum.reduce((s, x, i) => s + x * (i + 1), 0) / Math.max(
-        1e-8,
-        f.spectrum.reduce((s, x) => s + x, 0)
-      ) / 9;
-      const position = clamp(0.1 + character.level * 0.65 + (character.pace - 0.5) * 0.24 + (shape - 0.5) * 0.22, 0.12, 0.88);
-      const contour = Math.tanh((f.center - this.baseline) * 60 + f.slope * 35);
+    tick(intent, time) {
+      var _a, _b;
+      if (this.stopped || time < this.nextLead && time < this.nextSynth) return;
+      const { character, motion, detail, profileScale, shape, contour, position } = intent;
+      const f = __spreadProps(__spreadValues({}, intent.frame), { time });
       const leadPool = notePool(this.config.instrument);
       if (!this.motif.length) {
         this.anchor = position;
@@ -1000,8 +1044,8 @@ var Sonora = (() => {
         this.phrase++;
         if (closing) {
           const cell = Math.floor(this.phrase / 4) % 3;
-          const measured2 = Math.round(Math.tanh(f.profile[cell * 3] / profileScale) * 3);
-          this.motif[cell] += Math.sign(measured2 - this.motif[cell]);
+          const measured = Math.round(Math.tanh(f.profile[cell * 3] / profileScale) * 3);
+          this.motif[cell] += Math.sign(measured - this.motif[cell]);
           this.rhythm[cell] = [0.75, 1, 1.5, 2][Math.min(3, Math.floor(
             (0.5 + 0.5 * Math.tanh(f.profile[cell * 3 + 1] / profileScale)) * 4
           ))];
@@ -1025,10 +1069,10 @@ var Sonora = (() => {
       );
       const stability = this.config.synthMotion.stability / 100;
       const registerSlew = 0.22 - stability * 0.16;
-      this.synthRegister = this.synthRegister === null ? rawRegister : this.synthRegister + (rawRegister - this.synthRegister) * registerSlew;
+      if (f.time >= this.nextSynth) this.synthRegister = this.synthRegister === null ? rawRegister : this.synthRegister + (rawRegister - this.synthRegister) * registerSlew;
       const scan = (this.synthStep * 3 + voice.trace) % 10;
       const signature = Math.tanh(f.profile[scan] / profileScale);
-      const target = pool[0] + this.synthRegister * (pool[pool.length - 1] - pool[0]) + signature * (3 + character.texture * 5) + (character.pace - 0.5) * 7 + Math.sin(f.center * 0.73) * 3;
+      const target = pool[0] + ((_a = this.synthRegister) != null ? _a : rawRegister) * (pool[pool.length - 1] - pool[0]) + signature * (3 + character.texture * 5) + (character.pace - 0.5) * 7 + Math.sin(f.center * 0.73) * 3;
       const desiredIndex = pool.reduce(
         (best, n, i) => Math.abs(n - target) < Math.abs(pool[best] - target) ? i : best,
         0
@@ -1047,7 +1091,7 @@ var Sonora = (() => {
         const companionTarget = root + interval <= pool[pool.length - 1] ? root + interval : root - interval;
         const companion = pool.reduce(
           (best, n) => n !== root && Math.abs(n - companionTarget) < Math.abs(best - companionTarget) ? n : best,
-          (_a = pool.find((n) => n !== root)) != null ? _a : root
+          (_b = pool.find((n) => n !== root)) != null ? _b : root
         );
         const fade = Math.min(period * 0.65, this.config.synthMotion.transition / this.config.speed);
         const synthVelocity = velocity(this.config.synth);
@@ -1069,28 +1113,73 @@ var Sonora = (() => {
         this.nextSynth = f.time + period;
         this.synthStep++;
       }
-      if (gesture) this.greet(f, lead);
       this.previous = f;
     }
-    greet(f, lead) {
-      const tubes = [60, 62, 64, 67, 69];
-      const start = Math.abs(Math.round(f.center)) % tubes.length;
-      const times = [0, 0.22, 0.57];
-      for (let j = 0; j < times.length; j++) {
+    greet(f, lead = this.lastPitch > 0 ? this.lastPitch : 60) {
+      const hits = preset(this.config.instrument.preset).percussion;
+      if (hits) {
+        [0, 0.12, 0.27].forEach((delay, j) => {
+          const note = this.emit(
+            f,
+            "greeting",
+            hits[(j + Math.abs(f.seq)) % hits.length],
+            0.65,
+            [72, 62, 66][j],
+            (j - 1) * 0.2,
+            delay
+          );
+          note.reason = "percussion-greeting";
+        });
+        return;
+      }
+      const pool = notePool(__spreadProps(__spreadValues({}, this.config.instrument), { octaves: [3, 7] })).sort((a, b) => a - b);
+      if (!pool.length) return;
+      const target = clamp(lead + 5, 60, 78);
+      const root = pool.reduce((a, b) => Math.abs(b - target) < Math.abs(a - target) ? b : a);
+      const upper = pool.filter((n) => n > root && n <= root + 24);
+      const tension = (interval) => [1, 2, 6, 10, 11].includes(interval % 12) ? 12 : 0;
+      let chord = [root, root + 12, root + 24], best = Infinity;
+      for (let i = 0; i < upper.length; i++) {
+        for (let j = i + 1; j < upper.length; j++) {
+          const a = upper[i] - root, b = upper[j] - root;
+          const score = Math.abs(a - 4) + Math.abs(b - 7) + tension(a) + tension(b) + tension(b - a);
+          if (score < best) {
+            best = score;
+            chord = [root, upper[i], upper[j]];
+          }
+        }
+      }
+      chord.forEach((midi, j) => {
         const note = this.emit(
           f,
           "greeting",
-          tubes[(start + j * 2) % tubes.length],
-          1.15,
-          66 - j * 9,
-          Math.sin(j * 2.1) * 0.4,
-          times[j] * (0.85 + this.character.pace * 0.3)
+          midi,
+          0.7 + j * 0.075,
+          [72, 65, 60][j],
+          [-0.2, 0, 0.2][j],
+          [0, 0.12, 0.27][j]
         );
-        note.reason = "wind-chime";
+        note.reason = "instrument-greeting";
+      });
+    }
+    /* Alternative wind-chime greeting, retained for future comparison.
+       Requires the koshi patch, sample bypass and the commented DSP chime override.
+    private greetChimes(f: Frame, lead: number) {
+      const tubes = [84, 86, 88, 91, 93];
+      const start = Math.abs(Math.round(f.center)) % tubes.length;
+      // A small gust: uneven, overlapping strikes rather than a played melody.
+      const times = [0, 0.09, 0.21, 0.27, 0.43, 0.58];
+      const strikes = [0, 2, 4, 1, 3, 2];
+      const velocities = [54, 40, 47, 32, 37, 25];
+      for (let j = 0; j < times.length; j++) {
+        const note = this.emit(f, 'greeting', tubes[(start + strikes[j]) % tubes.length],
+          0.95, velocities[j], Math.sin(j * 2.1) * 0.45, times[j]);
+        note.reason = 'wind-chime';
       }
     }
+    */
     advance(time) {
-      if (this.previous && time - this.previous.time > 1.5) {
+      if (this.previous && time - this.previous.time > GAP_SECONDS) {
         this.events.push({ type: "release", time });
         this.previous = null;
       }
@@ -1151,6 +1240,93 @@ var Sonora = (() => {
       return this.previous;
     }
   };
+
+  // src/lib/sonora/rules/index.ts
+  var factories = { organic: (config) => new OrganicRules(config) };
+  var createRules = (config) => factories[mood(config.mood).rules](config);
+
+  // src/lib/sonora/composer.ts
+  var Composer = class {
+    constructor(config = defaultConfiguration()) {
+      __publicField(this, "config");
+      __publicField(this, "interpreter", new PlantInterpreter());
+      __publicField(this, "rules");
+      __publicField(this, "intent", null);
+      __publicField(this, "events", []);
+      __publicField(this, "stopped", false);
+      __publicField(this, "clock", -Infinity);
+      __publicField(this, "serial", 0);
+      this.config = sanitizeConfiguration(config);
+      this.rules = createRules(this.config);
+    }
+    collect() {
+      for (const event of this.rules.drain()) {
+        if (event.type === "note") event.note.id = this.serial++;
+        this.events.push(event);
+      }
+    }
+    configure(config, time) {
+      const next = sanitizeConfiguration(config);
+      if (next.mood !== this.config.mood) {
+        this.rules.finish(time);
+        this.collect();
+        this.rules = createRules(next);
+      } else {
+        this.rules.configure(next, time);
+        this.collect();
+      }
+      this.config = next;
+      if (this.intent)
+        this.events.push({ type: "expression", time, expression: plantExpression(this.intent, next) });
+    }
+    push(frame) {
+      if (this.stopped || this.intent && frame.time <= this.intent.frame.time) return;
+      if (this.intent && frame.time - this.intent.frame.time > GAP_SECONDS)
+        this.expire(frame.time);
+      this.intent = this.interpreter.push(frame);
+      this.events.push({ type: "expression", time: frame.time, expression: plantExpression(this.intent, this.config) });
+      this.advance(frame.time);
+      if (this.intent.greeting) {
+        this.rules.greet(frame);
+        this.collect();
+      }
+    }
+    advance(time) {
+      if (this.stopped || !this.intent || time < this.clock) return;
+      this.clock = time;
+      if (time - this.intent.frame.time > GAP_SECONDS) {
+        this.expire(time);
+        return;
+      }
+      this.rules.tick(this.intent, time);
+      this.collect();
+    }
+    expire(time) {
+      this.rules.finish(time);
+      this.collect();
+      this.rules = createRules(this.config);
+      this.interpreter = new PlantInterpreter();
+      this.intent = null;
+    }
+    finish(time) {
+      this.stopped = true;
+      this.rules.finish(time);
+      this.collect();
+    }
+    audition(lane, time) {
+      this.rules.audition(lane, time);
+      this.collect();
+    }
+    drain() {
+      const result = this.events;
+      this.events = [];
+      return result;
+    }
+    get latest() {
+      var _a, _b;
+      return (_b = (_a = this.intent) == null ? void 0 : _a.frame) != null ? _b : null;
+    }
+  };
   var noteName = (midi) => ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"][(Math.round(midi) % 12 + 12) % 12] + (Math.floor(midi / 12) - 1);
 
   // src/lib/sonora/dsp.ts
@@ -1191,7 +1367,7 @@ var Sonora = (() => {
       const x = (this.at - seconds * this.rate + b.length) % b.length, i = x | 0;
       return b[i] + (b[(i + 1) % b.length] - b[i]) * (x - i);
     }
-    process(l, r, p, movement = 0) {
+    process(l, r, p, movement = 0, space = 0) {
       const d = p.delay, c = p.chorus, rv = p.reverb;
       const dt = 0.07 + 1.1 * (1 - d.rate / 100), echoL = this.tap(this.dr, dt), echoR = this.tap(this.dl, dt * 1.017);
       this.dl[this.at] = l + (d.on ? echoL * 0.32 : 0);
@@ -1210,7 +1386,7 @@ var Sonora = (() => {
         r = r * (1 - depth * 0.35) + cr * depth * 0.35;
       }
       if (d.on) {
-        const wet = d.wet / 100;
+        const wet = clamp((d.wet + space * 0.5) / 100);
         l = l * (1 - wet) + echoL * wet;
         r = r * (1 - wet) + echoR * wet;
       }
@@ -1227,7 +1403,7 @@ var Sonora = (() => {
       const earlyL = this.tap(this.dl, 0.023), earlyR = this.tap(this.dr, 0.031), wetL = earlyL * 0.78 + (this.damp[0] + this.damp[1] - this.damp[2] - this.damp[3]) * 0.22, wetR = earlyR * 0.78 + (this.damp[0] - this.damp[1] + this.damp[2] - this.damp[3]) * 0.22;
       this.at = (this.at + 1) % this.dl.length;
       if (rv.on) {
-        const wet = rv.wet / 100;
+        const wet = clamp((rv.wet + space) / 100);
         l = l * (1 - wet) + wetL * wet;
         r = r * (1 - wet) + wetR * wet;
       }
@@ -1243,7 +1419,7 @@ var Sonora = (() => {
     };
     if (n.velocity <= 0) return;
     const desc = preset(n.patch.preset), isGreeting = n.lane === "greeting";
-    const program = isGreeting ? void 0 : desc.program;
+    const program = desc.program;
     const sample = sampleFor(
       program === "choir_organ" ? "choir_aahs" : program,
       n.midi
@@ -1265,7 +1441,7 @@ var Sonora = (() => {
       sample2,
       position: 0,
       position2: 0,
-      increment: sample ? sample.rate / rate * __pow(2, (n.midi - sample.midi) / 12) * n.patch.tuning / 440 : 0,
+      increment: sample ? desc.percussion ? sample.rate / rate : sample.rate / rate * __pow(2, (n.midi - sample.midi) / 12) * n.patch.tuning / 440 : 0,
       increment2: sample2 ? sample2.rate / rate * __pow(2, (n.midi - sample2.midi) / 12) * n.patch.tuning / 440 : 0,
       phase: 0,
       phase2: 0.07,
@@ -1277,15 +1453,15 @@ var Sonora = (() => {
       attenuation: Math.min(1, Math.sqrt(880 / frequency)),
       harmonics,
       ratios: desc.model === "bowl" ? [1, 2.71, 4.05, 5.43] : [1, 2, 3, 4],
-      attack: isGreeting ? 8e-3 : n.lane === "synth" && n.fade ? n.patch.envelope.on ? 0.35 + n.fade * (0.35 + n.patch.envelope.attack / 100 * 0.65) : 0.35 : n.patch.envelope.on ? 4e-3 + (n.lane === "synth" ? 1.3 : 0.45) * __pow(n.patch.envelope.attack / 100, 2) : n.lane === "synth" ? 0.08 : 4e-3,
-      release: isGreeting ? 0.65 : n.lane === "synth" && n.fade ? n.patch.envelope.on ? 0.6 + n.fade * (0.5 + n.patch.envelope.release / 100 * 0.8) : 0.8 : n.patch.envelope.on ? 0.06 + 3.5 * __pow(n.patch.envelope.release / 100, 2) : 0.35,
+      attack: isGreeting ? 3e-3 : n.lane === "synth" && n.fade ? n.patch.envelope.on ? 0.35 + n.fade * (0.35 + n.patch.envelope.attack / 100 * 0.65) : 0.35 : n.patch.envelope.on ? 4e-3 + (n.lane === "synth" ? 1.3 : 0.45) * __pow(n.patch.envelope.attack / 100, 2) : n.lane === "synth" ? 0.08 : 4e-3,
+      release: isGreeting ? 0.4 : n.lane === "synth" && n.fade ? n.patch.envelope.on ? 0.6 + n.fade * (0.5 + n.patch.envelope.release / 100 * 0.8) : 0.8 : n.patch.envelope.on ? 0.06 + 3.5 * __pow(n.patch.envelope.release / 100, 2) : 0.35,
       stop: n.time + n.duration,
       forced: Infinity,
       panL: Math.sqrt((1 - clamp(n.pan, -1, 1)) / 2),
       panR: Math.sqrt((1 + clamp(n.pan, -1, 1)) / 2),
       flavor,
       model: desc.model,
-      gain: (isGreeting ? 0.16 : n.lane === "synth" ? 0.48 : 0.28) * __pow(n.velocity / 100, 1.15)
+      gain: (isGreeting ? 0.2 : n.lane === "synth" ? 0.48 : 0.28) * __pow(n.velocity / 100, 1.15)
     };
   }
   var AudioCore = class {
@@ -1311,6 +1487,7 @@ var Sonora = (() => {
       __publicField(this, "buses");
       __publicField(this, "dcL", 0);
       __publicField(this, "dcR", 0);
+      __publicField(this, "space", 0);
       __publicField(this, "meters", { synth: 0, instrument: 0, greeting: 0 });
       __publicField(this, "rate");
       this.rate = rate;
@@ -1342,9 +1519,10 @@ var Sonora = (() => {
       if (n.lane === "greeting") this.greetingAt = this.time;
     }
     render(l, r) {
+      var _a, _b, _c;
       let at = 0, maxS = 0, maxI = 0, maxG = 0;
       const dc = 1 - Math.exp(-TAU * 18 / this.rate);
-      const expressionSlew = 1 - Math.exp(-1 / (0.18 * this.rate));
+      let expressionSlew = 1 - Math.exp(-1 / (((_a = this.targetExpression.smoothing) != null ? _a : 0.4) * this.rate));
       const duckAttack = 1 - Math.exp(-1 / (0.08 * this.rate));
       const duckRelease = 1 - Math.exp(-1 / (0.8 * this.rate));
       const lanes = ["synth", "instrument", "greeting"];
@@ -1353,11 +1531,7 @@ var Sonora = (() => {
         this.config.instrumentLevel,
         this.config.greetingLevel
       ];
-      const greetPatch = __spreadProps(__spreadValues({}, this.config.instrument), {
-        delay: { on: false, wet: 0, rate: 77 },
-        reverb: { on: true, wet: 20, amount: 32 },
-        chorus: { on: true, depth: 25, rate: 13 }
-      });
+      const greetPatch = greetingPatch(this.config.instrument);
       const patches = [this.config.synth, this.config.instrument, greetPatch];
       for (let i = 0; i < l.length; i++, this.cursor++) {
         const time = this.cursor / this.rate;
@@ -1371,6 +1545,7 @@ var Sonora = (() => {
             }
           } else if (e.type === "expression") {
             this.targetExpression = e.expression;
+            expressionSlew = 1 - Math.exp(-1 / (Math.max(0.05, (_b = e.expression.smoothing) != null ? _b : 0.4) * this.rate));
           } else {
             for (const v of this.voices)
               if (!e.lane || v.note.lane === e.lane) {
@@ -1384,6 +1559,7 @@ var Sonora = (() => {
             }
           }
         }
+        this.space += (((_c = this.targetExpression.space) != null ? _c : 0) - this.space) * expressionSlew;
         this.expression.brightness += (this.targetExpression.brightness - this.expression.brightness) * expressionSlew;
         this.expression.energy += (this.targetExpression.energy - this.expression.energy) * expressionSlew;
         this.expression.direction += (this.targetExpression.direction - this.expression.direction) * expressionSlew;
@@ -1451,14 +1627,6 @@ var Sonora = (() => {
             v.filterState += (value - v.filterState) * (1 - Math.exp(-TAU * cutoff / this.rate));
             value = v.filterState;
           }
-          if (v.note.lane === "greeting") {
-            value = 0;
-            for (let k = 0; k < 4; k++) {
-              const ratio = [1, 2.76, 5.4, 8.93][k];
-              if (v.frequency * ratio < this.rate * 0.42)
-                value += sin(age * v.frequency * ratio) * Math.exp(-age / (0.85 / (1 + k * 1.5))) * [0.78, 0.2, 0.075, 0.025][k];
-            }
-          }
           value *= envelope * v.gain;
           if (v.note.lane === "synth") {
             const drift = this.expression.direction * 0.13 + sin(age * 0.08 + v.note.pan) * 0.05;
@@ -1482,7 +1650,8 @@ var Sonora = (() => {
             j === 0 ? sl : j === 1 ? il : gl,
             j === 0 ? sr : j === 1 ? ir : gr,
             patches[j],
-            j === 0 ? energy : 0
+            j === 0 ? energy : 0,
+            j < 2 ? this.space : 0
           );
           const gain = levels[j] * (j < 2 ? this.duck : 1) * (j === 0 ? this.synthDuck : 1);
           left += bl * gain;
@@ -1494,8 +1663,8 @@ var Sonora = (() => {
         }
         this.dcL += (left - this.dcL) * dc;
         this.dcR += (right - this.dcR) * dc;
-        l[i] = Math.tanh((left - this.dcL) * 1.65) * 0.9;
-        r[i] = Math.tanh((right - this.dcR) * 1.65) * 0.9;
+        l[i] = Math.tanh((left - this.dcL) * 4.125) * 0.9;
+        r[i] = Math.tanh((right - this.dcR) * 4.125) * 0.9;
         if (this.cursor % 128 === 0)
           this.voices = this.voices.filter(
             (v) => time < Math.min(v.stop + v.release, v.forced)
@@ -1515,7 +1684,7 @@ var Sonora = (() => {
       return {
         voices: this.voices.length,
         meters: this.meters,
-        greeting: this.time - this.greetingAt < 3.2,
+        greeting: this.time - this.greetingAt < 1.27,
         pending: this.pending.length
       };
     }

@@ -98,4 +98,35 @@ export const sampleAssets: Record<string, { midi: number; asset: number }[]> = {
     { midi: 72, asset: require('../../../assets/audio/sonora/orchestral_harp-C5.mp3') },
     { midi: 84, asset: require('../../../assets/audio/sonora/orchestral_harp-C6.mp3') },
   ],
+  "bongos": [
+    { midi: 60, asset: require('../../../assets/audio/sonora/bongos-C4.mp3') },
+    { midi: 61, asset: require('../../../assets/audio/sonora/bongos-Db4.mp3') },
+  ],
+  "congas": [
+    { midi: 62, asset: require('../../../assets/audio/sonora/congas-D4.mp3') },
+    { midi: 63, asset: require('../../../assets/audio/sonora/congas-Eb4.mp3') },
+    { midi: 64, asset: require('../../../assets/audio/sonora/congas-E4.mp3') },
+  ],
+  "timbales": [
+    { midi: 65, asset: require('../../../assets/audio/sonora/timbales-F4.mp3') },
+    { midi: 66, asset: require('../../../assets/audio/sonora/timbales-Gb4.mp3') },
+  ],
+  "maracas": [
+    { midi: 70, asset: require('../../../assets/audio/sonora/maracas-Bb4.mp3') },
+  ],
+  "taiko_drum": [
+    { midi: 36, asset: require('../../../assets/audio/sonora/taiko_drum-C2.mp3') },
+    { midi: 48, asset: require('../../../assets/audio/sonora/taiko_drum-C3.mp3') },
+    { midi: 60, asset: require('../../../assets/audio/sonora/taiko_drum-C4.mp3') },
+  ],
+  "timpani": [
+    { midi: 36, asset: require('../../../assets/audio/sonora/timpani-C2.mp3') },
+    { midi: 48, asset: require('../../../assets/audio/sonora/timpani-C3.mp3') },
+    { midi: 60, asset: require('../../../assets/audio/sonora/timpani-C4.mp3') },
+  ],
+  "kalimba": [
+    { midi: 48, asset: require('../../../assets/audio/sonora/kalimba-C3.mp3') },
+    { midi: 60, asset: require('../../../assets/audio/sonora/kalimba-C4.mp3') },
+    { midi: 72, asset: require('../../../assets/audio/sonora/kalimba-C5.mp3') },
+  ],
 };

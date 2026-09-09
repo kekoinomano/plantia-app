@@ -380,6 +380,144 @@
         "file": "orchestral_harp-C6.mp3",
         "bytes": 15133
       }
+    ],
+    "bongos": [
+      {
+        "midi": 60,
+        "file": "bongos-C4.mp3",
+        "bytes": 10089,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/percussion-mp3/C4.mp3",
+        "sha256": "a20054497d42db394c227e0de25c7455f21c37ebd8cdc4f522f9b830d206c8be"
+      },
+      {
+        "midi": 61,
+        "file": "bongos-Db4.mp3",
+        "bytes": 10089,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/percussion-mp3/Db4.mp3",
+        "sha256": "7e292dc3064eae703d6afdb899a6bd77ac04e82f5dd10c82377112f66a2ddffc"
+      }
+    ],
+    "congas": [
+      {
+        "midi": 62,
+        "file": "congas-D4.mp3",
+        "bytes": 10089,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/percussion-mp3/D4.mp3",
+        "sha256": "2aca5e744637463092c952ed4b240eb63094165b36e3c5acc9f5dd0d8b3e910f"
+      },
+      {
+        "midi": 63,
+        "file": "congas-Eb4.mp3",
+        "bytes": 10089,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/percussion-mp3/Eb4.mp3",
+        "sha256": "c737ceeb638afcc8c416c9d39aad2d81250b208435ac7ab74b165aabc2d21d7b"
+      },
+      {
+        "midi": 64,
+        "file": "congas-E4.mp3",
+        "bytes": 10089,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/percussion-mp3/E4.mp3",
+        "sha256": "9b03ccf0b021464d7bb814c06a87c6c2afe035c7283510152b2f70f17ef4e615"
+      }
+    ],
+    "timbales": [
+      {
+        "midi": 65,
+        "file": "timbales-F4.mp3",
+        "bytes": 10089,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/percussion-mp3/F4.mp3",
+        "sha256": "62041a228c0a917c8e7cabf43e9f5c369cb6da26da12c600c9462240bf66bfbe"
+      },
+      {
+        "midi": 66,
+        "file": "timbales-Gb4.mp3",
+        "bytes": 10089,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/percussion-mp3/Gb4.mp3",
+        "sha256": "83759a17dbf5aa08c7d808a6037f8ac15d8c6b8b54b5350fc92e1ae4c73f16b4"
+      }
+    ],
+    "maracas": [
+      {
+        "midi": 70,
+        "file": "maracas-Bb4.mp3",
+        "bytes": 10089,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/percussion-mp3/Bb4.mp3",
+        "sha256": "bd67710117ce61960de5b432aad8eff3da338a9bee34054773980b5d285c7fa6"
+      }
+    ],
+    "taiko_drum": [
+      {
+        "midi": 36,
+        "file": "taiko_drum-C2.mp3",
+        "bytes": 14821,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/taiko_drum-mp3/C2.mp3",
+        "sha256": "1c9a4add423bf80c60e6512230e12c6b3569d8a2a34db712ff8dd6108b052f70"
+      },
+      {
+        "midi": 48,
+        "file": "taiko_drum-C3.mp3",
+        "bytes": 14613,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/taiko_drum-mp3/C3.mp3",
+        "sha256": "cc145c8017873b05703d745b1385ef20981af6446b1de18bfcc4b9d84fe1e663"
+      },
+      {
+        "midi": 60,
+        "file": "taiko_drum-C4.mp3",
+        "bytes": 14431,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/taiko_drum-mp3/C4.mp3",
+        "sha256": "5ae3592f46c56712ac6a239dfb2275acc9bc5ca124666c8fdf567e664dec8bc6"
+      }
+    ],
+    "timpani": [
+      {
+        "midi": 36,
+        "file": "timpani-C2.mp3",
+        "bytes": 20619,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/timpani-mp3/C2.mp3",
+        "sha256": "28baf5c4dba38f8b8821d774bafab716ffa9c8bcc622fa8550af9c7c5f306bf5"
+      },
+      {
+        "midi": 48,
+        "file": "timpani-C3.mp3",
+        "bytes": 19371,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/timpani-mp3/C3.mp3",
+        "sha256": "b19f1b62bb243e4a497d23f75513b197f5b282059037a0c247daa8bca5efb965"
+      },
+      {
+        "midi": 60,
+        "file": "timpani-C4.mp3",
+        "bytes": 16693,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/timpani-mp3/C4.mp3",
+        "sha256": "c0f01f601b4fa720d7ba73b9e37c9a06f3d4017afc1cd2a43407e7f462e9aa4f"
+      }
+    ],
+    "kalimba": [
+      {
+        "midi": 48,
+        "file": "kalimba-C3.mp3",
+        "bytes": 13911,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/kalimba-mp3/C3.mp3",
+        "sha256": "2cf206bf63a93d9f4e6dc5d693d266920708970717d3504409c8e1ef66142844"
+      },
+      {
+        "midi": 60,
+        "file": "kalimba-C4.mp3",
+        "bytes": 13859,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/kalimba-mp3/C4.mp3",
+        "sha256": "d45e4598009da405ead18d7124d456546664d95a18be8767ef850d1a2716e4a6"
+      },
+      {
+        "midi": 72,
+        "file": "kalimba-C5.mp3",
+        "bytes": 13989,
+        "source": "https://raw.githubusercontent.com/paulrosen/midi-js-soundfonts/cbd6b6f6d1af89ebfb69402860741288f08ff8b7/FluidR3_GM/kalimba-mp3/C5.mp3",
+        "sha256": "51205bb0b6ff73f439d92789ae34c0ca774030d5491abe1d27c490c5edc7e492"
+      }
     ]
+  },
+  "percussionSource": {
+    "repository": "paulrosen/midi-js-soundfonts",
+    "revision": "cbd6b6f6d1af89ebfb69402860741288f08ff8b7",
+    "license": "CC-BY-3.0"
   }
 }

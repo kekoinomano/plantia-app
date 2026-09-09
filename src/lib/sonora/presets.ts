@@ -1,4 +1,5 @@
-/** Sonora preset format v1: JSON-compatible, effect percentages remain as supplied; synth registers are revised for melodic clarity. */
+import { mood } from './moods.ts';
+/** Sonora preset format v1: JSON-compatible; old saved configurations remain valid. */
 export const NOTE_NAMES = [
   'C',
   'C#',
@@ -51,6 +52,8 @@ export type Patch = {
 };
 export type Configuration = {
   version: 1;
+  mood?: string;
+  plantResponse?: number;
   synth: Patch;
   instrument: Patch;
   synthMotion: { transition: number; stability: number };
@@ -66,6 +69,7 @@ export type Preset = {
   patch: Patch;
   program?: string;
   model?: string;
+  percussion?: number[];
   flavor: number;
   description?: string;
 };
@@ -93,6 +97,13 @@ const synths: Row[] = [
   ['Non Duality', 'Ryukyu', '3-5', '90/34', '19/99', '73/63', '100/9'],
 ];
 const instruments: Row[] = [
+  ['Bongos', '0,1', '4-4', '-', '12/20', '-', '12/0', 'bongos'],
+  ['Congas', '2,3,4', '4-4', '-', '14/25', '-', '16/0', 'congas'],
+  ['Timbales', '5,6', '4-4', '-', '12/20', '-', '12/0', 'timbales'],
+  ['Maracas', '10', '4-4', '-', '8/15', '-', '8/0', 'maracas'],
+  ['Taiko', 'Min Pentatonic', '2-4', '-', '18/30', '-', '20/0', 'taiko_drum'],
+  ['Timpani', 'Ionian', '2-4', '-', '20/35', '-', '25/0', 'timpani'],
+  ['Kalimba', 'Maj Pentatonic', '3-5', '10/92', '20/30', '-', '25/0', 'kalimba'],
   [
     'Pan Flute',
     'Maj Pentatonic',
@@ -211,6 +222,9 @@ const instruments: Row[] = [
   ],
 ];
 const pair = (s: string) => (s === '-' ? [0, 0] : s.split('/').map(Number));
+const percussionHits: Record<string, number[]> = {
+  bongos: [60, 61], congas: [62, 63, 64], timbales: [65, 66], maracas: [70],
+};
 function make(row: Row, kind: Preset['kind'], flavor: number): Preset {
   const [name, scale, oct, del, rev, cho, env, source] = row,
     id = name.toLowerCase().replaceAll(' ', '-');
@@ -223,6 +237,9 @@ function make(row: Row, kind: Preset['kind'], flavor: number): Preset {
     name,
     kind,
     flavor,
+    percussion: source ? percussionHits[source] : undefined,
+    description: source && percussionHits[source] ? 'Percusión · golpes originales sin transposición' :
+      ['taiko_drum', 'timpani', 'kalimba'].includes(source ?? '') ? 'Percusión afinada' : undefined,
     program: source?.startsWith('model:') ? undefined : source,
     model: source?.startsWith('model:') ? source.slice(6) : undefined,
     patch: {
@@ -250,6 +267,8 @@ export const copyPatch = (id: string): Patch =>
 export function defaultConfiguration(): Configuration {
   return {
     version: 1,
+    mood: 'organic',
+    plantResponse: 1,
     synth: copyPatch('healing'),
     instrument: copyPatch('harp'),
     synthMotion: { transition: 4.5, stability: 78 },
@@ -263,6 +282,8 @@ const limit = (n: number, a: number, b: number) =>
   Number.isFinite(n) ? Math.max(a, Math.min(b, n)) : a;
 export function sanitizeConfiguration(input: Configuration): Configuration {
   const c = JSON.parse(JSON.stringify(input)) as Configuration;
+  c.mood = mood(c.mood).id;
+  c.plantResponse = limit(c.plantResponse ?? 1, 0, 1);
   const synthMotion = c.synthMotion as Configuration['synthMotion'] & {
     glide?: number;
   };
@@ -306,8 +327,21 @@ export function sanitizeConfiguration(input: Configuration): Configuration {
   return c;
 }
 export function notePool(p: Patch) {
+  const hits = preset(p.preset).percussion;
+  if (hits) return [...hits];
   const notes: number[] = [];
   for (let o = p.octaves[0]; o <= p.octaves[1]; o++)
     for (const n of p.notes) notes.push(12 * (o + 1) + n);
   return notes;
+}
+
+/** A short, luminous response; independent of the instrument's long effect tails. */
+export function greetingPatch(instrument: Patch): Patch {
+  return {
+    ...instrument,
+    delay: { on: true, wet: 12, rate: 92 },
+    reverb: { on: true, wet: 18, amount: 20 },
+    chorus: { on: true, depth: 12, rate: 18 },
+    envelope: { on: true, attack: 0, release: 10 },
+  };
 }

@@ -47,7 +47,7 @@ export function median(a: number[]) {
 export const signedLog = (x: number) =>
   Math.sign(x) * Math.log2(1 + Math.abs(x));
 const BIN_MS = 250;
-export const GAP_SECONDS = 1.5;
+export const GAP_SECONDS = 6;
 /** DCT of the ordered packet: these are spatial/sample-order components, never calibrated Hz. */
 function describe(
   values: number[],

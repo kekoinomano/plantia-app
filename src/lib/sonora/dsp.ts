@@ -3,6 +3,7 @@ import { clamp } from './signal.ts';
 import {
   preset,
   defaultConfiguration,
+  greetingPatch,
   type Configuration,
   type Patch,
 } from './presets.ts';
@@ -50,7 +51,7 @@ class Effects {
       i = x | 0;
     return b[i] + (b[(i + 1) % b.length] - b[i]) * (x - i);
   }
-  process(l: number, r: number, p: Patch, movement = 0): [number, number] {
+  process(l: number, r: number, p: Patch, movement = 0, space = 0): [number, number] {
     const d = p.delay,
       c = p.chorus,
       rv = p.reverb;
@@ -74,7 +75,7 @@ class Effects {
       r = r * (1 - depth * 0.35) + cr * depth * 0.35;
     }
     if (d.on) {
-      const wet = d.wet / 100;
+      const wet = clamp((d.wet + space * 0.5) / 100);
       l = l * (1 - wet) + echoL * wet;
       r = r * (1 - wet) + echoR * wet;
     }
@@ -100,7 +101,7 @@ class Effects {
         (this.damp[0] - this.damp[1] + this.damp[2] - this.damp[3]) * 0.22;
     this.at = (this.at + 1) % this.dl.length;
     if (rv.on) {
-      const wet = rv.wet / 100;
+      const wet = clamp((rv.wet + space) / 100);
       l = l * (1 - wet) + wetL * wet;
       r = r * (1 - wet) + wetR * wet;
     }
@@ -146,7 +147,7 @@ export function prepareVoice(rate: number, bank: Bank, n: Note): Voice | undefin
   if (n.velocity <= 0) return;
   const desc = preset(n.patch.preset),
     isGreeting = n.lane === 'greeting';
-  const program = isGreeting ? undefined : desc.program;
+  const program = desc.program;
   const sample = sampleFor(
       program === 'choir_organ' ? 'choir_aahs' : program,
       n.midi,
@@ -176,7 +177,7 @@ export function prepareVoice(rate: number, bank: Bank, n: Note): Voice | undefin
     position: 0,
     position2: 0,
     increment: sample
-      ? ((sample.rate / rate) *
+      ? desc.percussion ? sample.rate / rate : ((sample.rate / rate) *
           2 ** ((n.midi - sample.midi) / 12) *
           n.patch.tuning) /
         440
@@ -198,7 +199,7 @@ export function prepareVoice(rate: number, bank: Bank, n: Note): Voice | undefin
     harmonics,
     ratios: desc.model === 'bowl' ? [1, 2.71, 4.05, 5.43] : [1, 2, 3, 4],
     attack: isGreeting
-      ? 0.008
+      ? 0.003
       : n.lane === 'synth' && n.fade
         ? n.patch.envelope.on
           ? 0.35 + n.fade * (0.35 + (n.patch.envelope.attack / 100) * 0.65)
@@ -211,7 +212,7 @@ export function prepareVoice(rate: number, bank: Bank, n: Note): Voice | undefin
           ? 0.08
           : 0.004,
     release: isGreeting
-      ? 0.65
+      ? 0.4
       : n.lane === 'synth' && n.fade
         ? n.patch.envelope.on
           ? 0.6 + n.fade * (0.5 + (n.patch.envelope.release / 100) * 0.8)
@@ -226,7 +227,7 @@ export function prepareVoice(rate: number, bank: Bank, n: Note): Voice | undefin
     flavor,
     model: desc.model,
     gain:
-      (isGreeting ? 0.16 : n.lane === 'synth' ? 0.48 : 0.28) *
+      (isGreeting ? 0.2 : n.lane === 'synth' ? 0.48 : 0.28) *
       (n.velocity / 100) ** 1.15,
   };
 }
@@ -253,6 +254,7 @@ export class AudioCore {
   private buses: Record<Lane, Effects>;
   private dcL = 0;
   private dcR = 0;
+  private space = 0;
   private meters = { synth: 0, instrument: 0, greeting: 0 };
   private rate: number;
   constructor(rate: number, config = defaultConfiguration(), bank: Bank = {}) {
@@ -290,7 +292,7 @@ export class AudioCore {
       maxI = 0,
       maxG = 0;
     const dc = 1 - Math.exp((-TAU * 18) / this.rate);
-    const expressionSlew = 1 - Math.exp(-1 / (0.18 * this.rate));
+    let expressionSlew = 1 - Math.exp(-1 / ((this.targetExpression.smoothing ?? 0.4) * this.rate));
     const duckAttack = 1 - Math.exp(-1 / (0.08 * this.rate));
     const duckRelease = 1 - Math.exp(-1 / (0.8 * this.rate));
     const lanes: Lane[] = ['synth', 'instrument', 'greeting'];
@@ -299,12 +301,7 @@ export class AudioCore {
       this.config.instrumentLevel,
       this.config.greetingLevel,
     ];
-    const greetPatch = {
-      ...this.config.instrument,
-      delay: { on: false, wet: 0, rate: 77 },
-      reverb: { on: true, wet: 20, amount: 32 },
-      chorus: { on: true, depth: 25, rate: 13 },
-    };
+    const greetPatch = greetingPatch(this.config.instrument);
     const patches = [this.config.synth, this.config.instrument, greetPatch];
     for (let i = 0; i < l.length; i++, this.cursor++) {
       const time = this.cursor / this.rate;
@@ -318,6 +315,7 @@ export class AudioCore {
           }
         } else if (e.type === 'expression') {
           this.targetExpression = e.expression;
+          expressionSlew = 1 - Math.exp(-1 / (Math.max(0.05, e.expression.smoothing ?? 0.4) * this.rate));
         } else {
           for (const v of this.voices)
             if (!e.lane || v.note.lane === e.lane) {
@@ -335,6 +333,7 @@ export class AudioCore {
           }
         }
       }
+      this.space += ((this.targetExpression.space ?? 0) - this.space) * expressionSlew;
       this.expression.brightness +=
         (this.targetExpression.brightness - this.expression.brightness) *
         expressionSlew;
@@ -439,16 +438,19 @@ export class AudioCore {
             (value - v.filterState) * (1 - Math.exp((-TAU * cutoff) / this.rate));
           value = v.filterState;
         }
+        /* Alternative wind-chime timbre (inactive).
         if (v.note.lane === 'greeting') {
           value = 0;
           for (let k = 0; k < 4; k++) {
             const ratio = [1, 2.76, 5.4, 8.93][k];
             if (v.frequency * ratio < this.rate * 0.42)
-              value += sin(age * v.frequency * ratio) *
-                Math.exp(-age / (0.85 / (1 + k * 1.5))) *
-                [0.78, 0.2, 0.075, 0.025][k];
+              value += (sin(age * v.frequency * ratio) * 0.7 +
+                sin(age * v.frequency * ratio * 1.0015) * 0.3) *
+                Math.exp(-age / (0.48 / (1 + k * 1.2))) *
+                [0.65, 0.26, 0.1, 0.04][k];
           }
         }
+        */
         value *= envelope * v.gain;
         if (v.note.lane === 'synth') {
           const drift =
@@ -480,6 +482,7 @@ export class AudioCore {
           j === 0 ? sr : j === 1 ? ir : gr,
           patches[j],
           j === 0 ? energy : 0,
+          j < 2 ? this.space : 0,
         );
         const gain =
           levels[j] *
@@ -494,8 +497,9 @@ export class AudioCore {
       }
       this.dcL += (left - this.dcL) * dc;
       this.dcR += (right - this.dcR) * dc;
-      l[i] = Math.tanh((left - this.dcL) * 1.65) * 0.9;
-      r[i] = Math.tanh((right - this.dcR) * 1.65) * 0.9;
+      // 2.5x the previous pre-limiter master gain; keep output bounded at 0.9.
+      l[i] = Math.tanh((left - this.dcL) * 4.125) * 0.9;
+      r[i] = Math.tanh((right - this.dcR) * 4.125) * 0.9;
       if (this.cursor % 128 === 0)
         this.voices = this.voices.filter(
           (v) => time < Math.min(v.stop + v.release, v.forced),
@@ -515,7 +519,7 @@ export class AudioCore {
     return {
       voices: this.voices.length,
       meters: this.meters,
-      greeting: this.time - this.greetingAt < 3.2,
+      greeting: this.time - this.greetingAt < 1.27,
       pending: this.pending.length,
     };
   }

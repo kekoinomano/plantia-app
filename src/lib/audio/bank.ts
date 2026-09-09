@@ -10,7 +10,6 @@ export class SampleBank {
   async load(config: Configuration, context: AudioContext): Promise<Bank> {
     const program = preset(config.instrument.preset).program;
     const needed = new Set([
-      "orchestral_harp",
       ...(program === "choir_organ" ? ["choir_aahs", "church_organ"] : program ? [program] : []),
     ]);
     const bank: Bank = {};

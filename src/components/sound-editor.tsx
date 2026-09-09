@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, Keyboard } from "react-native";
+import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, Keyboard, Linking } from "react-native";
 import Slider from "@react-native-community/slider";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
@@ -15,6 +15,7 @@ import {
 import { plantSession, usePlantSessionValue } from "@/lib/plant-session";
 import { colors, serif } from "./plantia-theme";
 import { Icon } from "./plant-icon";
+import { MOODS } from "@/lib/sonora/moods";
 
 export function SoundSlider({
   label,
@@ -85,7 +86,7 @@ function Choices({
 export function soundIcon(id: string): "wave" | "keys" | "bell" | "strings" | "wind" {
   const sound = preset(id);
   if (sound.kind === "synth") return "wave";
-  if (/bell|chime|bowl|drum|marimba|xylo/i.test(`${sound.name} ${sound.model} ${sound.program}`)) return "bell";
+  if (/bell|chime|bowl|drum|marimba|xylo|bongo|conga|timbal|maraca|taiko|timpani|kalimba/i.test(`${sound.name} ${sound.model} ${sound.program}`)) return "bell";
   if (/sitar|guitar|harp|string/i.test(`${sound.name} ${sound.program}`)) return "strings";
   if (/flute|wind|brass|oboe/i.test(`${sound.name} ${sound.program}`)) return "wind";
   return "keys";
@@ -173,6 +174,13 @@ export const SoundEditor = memo(function SoundEditor({
             </>
           ) : lane === "mix" ? (
             <>
+              <Text style={styles.label}>Mood · reglas musicales</Text>
+              <Choices options={MOODS.map((m) => ({ value: m.id, label: m.name }))}
+                selected={config.mood ?? "organic"}
+                onSelect={(mood) => plantSession.configure({ ...config, mood })} />
+              <SoundSlider label="Expresión de la planta" value={(config.plantResponse ?? 1) * 100}
+                onChange={(v) => plantSession.configure({ ...config, plantResponse: v / 100 })} />
+              <Text style={styles.soundDetail}>Modula el timbre y el espacio sin cambiar tus ajustes. Las notas y el ritmo siguen naciendo de la señal.</Text>
               <SoundSlider
                 label="Ritmo"
                 min={0.25}
@@ -197,6 +205,11 @@ export const SoundEditor = memo(function SoundEditor({
                 value={config.greetingLevel * 100}
                 onChange={(v) => plantSession.configure({ ...config, greetingLevel: v / 100 })}
               />
+              <Text style={styles.soundDetail}>Muestras FluidR3 GM: Frank Wen y colaboradores. Conversión MIDI.js: Benjamin Gleitzman y colaboradores; percusión: Paul Rosen. Selección y normalización en Plantia.</Text>
+              <Text accessibilityRole="link" style={styles.soundDetail}
+                onPress={() => Linking.openURL("https://github.com/paulrosen/midi-js-soundfonts")}>Fuente de las muestras ↗</Text>
+              <Text accessibilityRole="link" style={styles.soundDetail}
+                onPress={() => Linking.openURL("https://creativecommons.org/licenses/by/3.0/")}>Licencia CC BY 3.0 ↗</Text>
             </>
           ) : (
             <>
@@ -210,6 +223,9 @@ export const SoundEditor = memo(function SoundEditor({
                 <Text style={styles.previewText}>Escuchar este sonido</Text>
               </Pressable>
               <Text style={styles.section}>CARÁCTER</Text>
+              {preset(patch.preset).percussion ? (
+                <Text style={styles.soundDetail}>La planta alterna golpes originales de este instrumento. No se transponen ni necesitan escala u octavas.</Text>
+              ) : (<>
               <Text style={styles.label}>Escala</Text>
               <Choices
                 options={[...Object.keys(SCALES), "Custom"].map((value) => ({
@@ -221,11 +237,13 @@ export const SoundEditor = memo(function SoundEditor({
                   updatePatch({ ...patch, scale, notes: [...(SCALES[scale] ?? patch.notes)] })
                 }
               />
+              </>)}
               <Pressable accessibilityRole="button" accessibilityState={{ expanded: advanced }} onPress={() => setAdvanced(!advanced)} style={styles.advanced}>
-                <View><Text style={styles.previewText}>Notas y afinación</Text><Text style={styles.soundDetail}>Registro, intensidad y afinación precisa</Text></View>
+                <View><Text style={styles.previewText}>{preset(patch.preset).percussion ? "Intensidad" : "Notas y afinación"}</Text><Text style={styles.soundDetail}>Personaliza la expresión del sonido</Text></View>
                 <Text style={styles.previewText}>{advanced ? "−" : "+"}</Text>
               </Pressable>
               {advanced && (<>
+              {!preset(patch.preset).percussion && (<>
               <Text style={styles.label}>Afinación</Text>
               <Choices
                 options={TUNINGS.map((value) => ({ value: String(value), label: `${value} Hz` }))}
@@ -282,6 +300,7 @@ export const SoundEditor = memo(function SoundEditor({
                       updatePatch({ ...patch, octaves: [Math.min(v, patch.octaves[0]), v] })
                     }
                   />
+                  </>)}
                   <SoundSlider
                     label="Intensidad"
                     max={127}

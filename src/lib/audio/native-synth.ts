@@ -298,6 +298,8 @@ export class NativeSynth {
         greeting: config.greetingLevel },
       effects: { synth: effects(config.synth), instrument: effects(config.instrument) },
       synthMotion: config.synthMotion,
+      mood: config.mood ?? "organic", plantResponse: config.plantResponse ?? 1,
+      masterGain: 4.125,
     };
   }
 

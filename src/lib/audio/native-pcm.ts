@@ -1,7 +1,7 @@
 import { requireOptionalNativeModule } from "expo";
 import { prepareVoice, type Bank, type Sample } from "../sonora/dsp";
 import type { Event, Lane } from "../sonora/composer";
-import type { Configuration, Patch } from "../sonora/presets";
+import { greetingPatch, type Configuration, type Patch } from "../sonora/presets";
 
 type Module = {
   create(rate: number): number;
@@ -51,9 +51,7 @@ export class NativePcmCore {
     }
     for (const s of this.samples.keys()) if (!retained.has(s)) this.samples.delete(s);
     this.module.retain(this.id, [...this.samples.values()]);
-    const greeting: Patch = { ...config.instrument,
-      delay: { on: false, wet: 0, rate: 77 }, chorus: { on: true, depth: 25, rate: 13 },
-      reverb: { on: true, wet: 20, amount: 32 } };
+    const greeting = greetingPatch(config.instrument);
     this.module.configure(this.id, [
       ...patch(config.synthLevel, config.synth), ...patch(config.instrumentLevel, config.instrument),
       ...patch(config.greetingLevel, greeting),
@@ -63,7 +61,8 @@ export class NativePcmCore {
   schedule(events: Event[]) {
     for (const e of events) {
       if (e.type === "expression") this.module.schedule(this.id,
-        [1, e.time, e.expression.brightness, e.expression.energy, e.expression.direction, ...e.expression.bands]);
+        [1, e.time, e.expression.brightness, e.expression.energy, e.expression.direction, ...e.expression.bands,
+          e.expression.space ?? 0, e.expression.smoothing ?? 0.4]);
       else if (e.type === "release") this.module.schedule(this.id, [2, e.time, e.lane ? lanes.indexOf(e.lane) : -1]);
       else {
         const v = prepareVoice(this.rate, this.bank, e.note);
