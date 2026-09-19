@@ -17,14 +17,18 @@ import { SignalChart } from "@/components/signal-chart";
 import { SoundEditor, soundIcon } from "@/components/sound-editor";
 import { colors, serif } from "@/components/plantia-theme";
 
+const familyName = (family: string) => ({
+  percussion: "percusión", wind: "viento", strings: "cuerda", keys: "teclas", voice: "voz",
+}[family] ?? family);
+
 export default function HomeScreen() {
   const state = usePlantSession();
   const [editor, setEditor] = useState<string | null>(null);
-  const [editorMode, setEditorMode] = useState<"choose" | "edit">("choose");
   const closeEditor = useCallback(() => setEditor(null), []);
   const [moodOpen, setMoodOpen] = useState(false);
   const selectedMood = mood(state.config.mood);
-  const slots = soundSlots(state.config);
+  const slots = soundSlots(state.config).filter((slot) =>
+    !selectedMood.slots.find((definition) => definition.id === slot.id)?.hidden);
   const [credits, setCredits] = useState(false);
   const connected = state.connection === "connected";
   const scanning = state.connection === "scanning";
@@ -202,27 +206,33 @@ export default function HomeScreen() {
             const definition = selectedMood.slots.find((s) => s.id === slot.id)!;
             const sound = preset(slot.patch.preset);
             return <View key={slot.id} style={styles.soundCard}>
-              <Pressable accessibilityRole="button" accessibilityLabel={`Elegir ${definition.label}`}
-                onPress={() => { setEditorMode("choose"); setEditor(slot.id); }} style={styles.soundSelect}>
+              {slot.kind === "instrument" ? <Pressable accessibilityRole="button"
+                accessibilityLabel={`Cambiar ${definition.label}`}
+                onPress={() => setEditor(slot.id)} style={styles.soundSelect}>
                 <Icon name={soundIcon(slot.patch.preset)} size={21} color={colors.green} />
                 <View style={styles.voiceCopy}>
                   <Text style={styles.cardEyebrow}>{definition.label.toUpperCase()}</Text>
                   <Text style={[styles.soundName, { fontSize: 18 }]}>{sound.name}</Text>
-                  {definition.families && <Text style={styles.soundScale}>Solo {definition.families.map((f) => f === 'percussion' ? 'percusión' : f === 'wind' ? 'viento' : f).join(' / ')}</Text>}
+                  {definition.families && <Text style={styles.soundScale}>Solo {definition.families.map(familyName).join(' / ')}</Text>}
                 </View>
                 <View style={{ transform: [{ rotate: "90deg" }] }}><Icon name="chevron" size={14} /></View>
-              </Pressable>
-              <Pressable accessibilityRole="button" accessibilityLabel={`Editar ${definition.label}: ${sound.name}`}
-                onPress={() => { setEditorMode("edit"); setEditor(slot.id); }} style={styles.voiceEdit}><Icon name="edit" size={17} /></Pressable>
+              </Pressable> : <View style={styles.soundSelect}>
+                <Icon name={soundIcon(slot.patch.preset)} size={21} color={colors.green} />
+                <View style={styles.voiceCopy}>
+                  <Text style={styles.cardEyebrow}>{definition.label.toUpperCase()}</Text>
+                  <Text style={[styles.soundName, { fontSize: 18 }]}>{sound.name}</Text>
+                  <Text style={styles.soundScale}>Diseñado por {selectedMood.name}</Text>
+                </View>
+              </View>}
             </View>;
           })}
         </View>
         <Pressable accessibilityRole="button" onPress={() => setEditor("mix")} style={styles.mix}>
           <View style={styles.mixLeft}>
             <Icon name="sliders" size={20} />
-            <Text style={styles.mixText}>Ritmo y mezcla</Text>
+            <Text style={styles.mixText}>Afinación y mezcla</Text>
           </View>
-          <Text style={styles.mixValue}>{Number(state.config.speed.toFixed(2))}×</Text>
+          <Text style={styles.mixValue}>{state.config.harmony.scale} · {state.config.harmony.tuning} Hz</Text>
           <Icon name="chevron" size={16} />
         </Pressable>
         <View style={styles.footer}>
@@ -268,7 +278,7 @@ export default function HomeScreen() {
           </View>
         )}
       </ScrollView>
-      <SoundEditor initialMode={editorMode} lane={editor} onClose={closeEditor} />
+      <SoundEditor lane={editor} onClose={closeEditor} />
     </SafeAreaView>
   );
 }
@@ -393,7 +403,6 @@ const styles = StyleSheet.create({
   soundSelect: { flex: 1, flexDirection: "row", alignItems: "center", padding: 13, gap: 12, minHeight: 70 },
   voiceIcon: { width: 48, height: 48, backgroundColor: "#FFFFFF88", borderRadius: 16, alignItems: "center", justifyContent: "center" },
   voiceCopy: { flex: 1 },
-  voiceEdit: { width: 44, height: 44, borderRadius: 15, backgroundColor: "#FFFFFF88", alignItems: "center", justifyContent: "center" },
   cardTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 4 },
   soundName: {
     fontFamily: serif,

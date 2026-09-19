@@ -34,7 +34,8 @@ export class Composer {
   }
   configure(config: Configuration, time: number) {
     const next = sanitizeConfiguration(config);
-    if (next.mood !== this.config.mood) {
+    const moodChanged = next.mood !== this.config.mood;
+    if (moodChanged) {
       this.rules.finish(time);
       this.collect();
       this.rules = createRules(next);
@@ -43,8 +44,11 @@ export class Composer {
       this.collect();
     }
     this.config = next;
-    if (this.intent)
+    if (this.intent) {
       this.events.push({ type: 'expression', time, expression: plantExpression(this.intent, next) });
+      if (moodChanged) this.rules.tick(this.intent, time);
+      this.collect();
+    }
   }
   push(frame: Frame) {
     if (this.stopped || this.intent && frame.time <= this.intent.frame.time) return;

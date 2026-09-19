@@ -20,6 +20,7 @@ export class NativeAudio {
   private currentSettings: Settings | null = null;
   private subscriptions: { remove(): void }[] = [];
   private lastSequence = -1;
+  private packetClockOffsetMs: number | null = null;
   private closed = false;
   private playing = false;
   private resumeAfterInterruption = false;
@@ -53,6 +54,9 @@ export class NativeAudio {
     await context.suspend();
     if (this.closed) return;
     await this.configure(config);
+    // Shares promises with configure(): switching moods does not decode the same samples again.
+    void this.bank.preloadMoodDefaults(context).catch((error) =>
+      console.warn("[Plantia PCM] PRELOAD_ERROR", error instanceof Error ? error.message : String(error)));
     if (this.closed) return;
     // Starts the mediaPlayback | connectedDevice foreground service on Android.
     if (Platform.OS === "android") await AudioManager.requestNotificationPermissions();
@@ -102,6 +106,7 @@ export class NativeAudio {
     if (!this.currentSettings) return;
     this.composer = new Composer(this.currentSettings.config);
     this.lastSequence = -1;
+    this.packetClockOffsetMs = null;
     this.signal = createSignalAccumulator((frame) => {
       if (!this.context || !this.composer || this.context.currentTime - frame.time > GAP_SECONDS) return;
       this.composer.advance(frame.time);
@@ -146,9 +151,12 @@ export class NativeAudio {
     const now = this.context.currentTime;
     try {
       this.synth?.activity(now + GAP_SECONDS);
-      // Timestamp analysis with the hardware clock. The PCM adapter maps whole
-      // event batches to the next unwritten samples, preserving musical offsets.
-      this.signal?.push({ ...packet, elapsed_ms: now * 1000 });
+      // Map the recorded packet timeline once onto the hardware clock. Keeping
+      // every original interval makes a replay of the same session deterministic;
+      // the PCM adapter still maps complete event batches to unwritten samples.
+      this.packetClockOffsetMs ??= now * 1000 - packet.elapsed_ms;
+      this.signal?.push({ ...packet,
+        elapsed_ms: packet.elapsed_ms + this.packetClockOffsetMs });
     } catch (error) {
       void this.setPlaying(false).catch(this.onError);
       this.onError(error);

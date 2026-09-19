@@ -2,7 +2,7 @@ import { AppState, Platform } from "react-native";
 import { isRunningInExpoGo } from "expo";
 import { useSyncExternalStore } from "react";
 import { GAP_SECONDS } from "./sonora/signal";
-import { copyPatch, defaultConfiguration, sanitizeConfiguration, soundSlots, allowedPresets, type Patch, type Configuration } from "./sonora/presets";
+import { defaultConfiguration, sanitizeConfiguration, soundSlots, allowedPresets, type Configuration } from "./sonora/presets";
 import { mood } from "./sonora/moods";
 import type { PlantPacket } from "./plant-packet";
 import type { DiscoveredDevice, PlantConnection } from "./plant-connection";
@@ -165,8 +165,8 @@ class PlantSession {
       this.ble = new PlantConnection();
       await this.ble.waitReady();
       if (generation !== this.generation) return;
-      await this.audio.start(this.snapshot.config);
-      if (generation !== this.generation) return;
+      // Discovery must not wait for sample decoding, notification setup or the
+      // audio session. Android can show the sensor while Sonora finishes loading.
       this.ble.startDiscovery(
         (devices) => {
           if (generation === this.generation && this.snapshot.connection === "scanning")
@@ -184,6 +184,8 @@ class PlantSession {
             "No encuentro ninguna planta. Enciende el sensor, acércalo al teléfono e inténtalo otra vez.",
           );
       }, 25000);
+      await this.audio.start(this.snapshot.config);
+      if (generation !== this.generation) return;
     } catch (error) {
       if (generation !== this.generation) return;
       await this.disconnect(
@@ -265,30 +267,40 @@ class PlantSession {
     });
   };
 
-  private patches = new Map<string, Patch>();
   private moodSettings = new Map<string, Configuration>();
   selectMood = (id: string) => {
     const current = this.snapshot.config;
     if (mood(current.mood).id === id) return;
     this.moodSettings.set(mood(current.mood).id, current);
-    this.configure(this.moodSettings.get(id) ?? { ...defaultConfiguration(), mood: id });
+    const saved = this.moodSettings.get(id);
+    const definition = mood(id);
+    this.configure(saved ?? {
+      ...defaultConfiguration(),
+      mood: definition.id,
+      harmony: {
+        scale: definition.score.harmony.scale,
+        notes: [...definition.score.harmony.notes],
+        tuning: definition.score.harmony.tuning,
+      },
+      slots: [],
+    });
   };
-  selectPreset = (slotId: string, id: string) => {
+  selectInstrument = (slotId: string, id: string) => {
     const config = this.snapshot.config;
     const definition = mood(config.mood).slots.find((s) => s.id === slotId);
-    if (!definition || !allowedPresets(definition).some((p) => p.id === id)) return;
-    const key = `${config.mood ?? 'organic'}:${slotId}:${id}`;
-    this.updateSlot(slotId, { patch: this.patches.get(key) ?? copyPatch(id) });
+    if (!definition || definition.hidden || definition.kind !== "instrument" ||
+      !allowedPresets(definition).some((candidate) => candidate.id === id)) return;
+    this.configure({ ...config, slots: soundSlots(config).map((slot) => slot.id === slotId
+      ? { ...slot, patch: { ...slot.patch, preset: id } } : slot) });
   };
-  updateSlot = (id: string, patch: { patch?: Patch; level?: number; motion?: Configuration['synthMotion'] }) => {
+  setSlotLevel = (id: string, level: number) => {
     const config = this.snapshot.config;
-    this.configure({ ...config, slots: soundSlots(config).map((s) => s.id === id ? { ...s, ...patch } : s) });
+    this.configure({ ...config, slots: soundSlots(config).map((slot) => slot.id === id
+      ? { ...slot, level } : slot) });
   };
   configure = (config: Configuration) => {
     const previous = this.snapshot.config;
     const next = sanitizeConfiguration(config);
-    for (const slot of soundSlots(previous))
-      this.patches.set(`${previous.mood ?? 'organic'}:${slot.id}:${slot.patch.preset}`, slot.patch);
     this.update({ config: next, error: null });
     void this.audio?.configure(next).catch((error) => {
       if (this.snapshot.config === next) this.update({ config: previous });

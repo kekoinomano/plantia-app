@@ -1,6 +1,4 @@
-import { OrganicRules } from './organic.ts';
-import { EnsembleRules } from './ensemble.ts';
-import { mood } from '../moods.ts';
+import { OrchestraRules } from './orchestra.ts';
 import type { Configuration } from '../presets.ts';
 import type { Frame } from '../signal.ts';
 import type { MusicalIntent } from '../intent.ts';
@@ -15,9 +13,4 @@ export interface MusicalRules {
   finish(time: number): void;
   drain(): Event[];
 }
-const factories = {
-  organic: (config: Configuration): MusicalRules => new OrganicRules(config),
-  mist: (config: Configuration): MusicalRules => new EnsembleRules(config, 'mist'),
-  grove: (config: Configuration): MusicalRules => new EnsembleRules(config, 'grove'),
-};
-export const createRules = (config: Configuration): MusicalRules => factories[mood(config.mood).rules](config);
+export const createRules = (config: Configuration): MusicalRules => new OrchestraRules(config);

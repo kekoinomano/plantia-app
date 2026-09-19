@@ -1,7 +1,7 @@
 import { median, type Frame } from './signal.ts';
 // Touch confirmation must stay brief even when sparse telemetry is still live.
 const GAP_SECONDS = 1.5;
-/** Detects coherent brief excursions, not their biological cause. Two frames reject isolated packet glitches. */
+/** Detects brief excursions, including a strong peak contained inside one 250 ms frame. */
 export function createGestureDetector() {
   let previous: Frame | null = null,
     began = 0,
@@ -47,8 +47,19 @@ export function createGestureDetector() {
         ? median(history.map((p) => p.center))
         : frame.center;
       const noise = median(history.map((p) => p.step));
-      const threshold = Math.max(0.13, noise * 9);
+      const threshold = Math.max(0.055, noise * 4);
       const deviation = Math.abs(frame.center - baseline);
+      const peakCenter = frame.peakCenter ?? frame.center;
+      const peakContrast = Math.max(frame.peakContrast ?? 0,
+        Math.abs(peakCenter - baseline), step);
+      const strongThreshold = Math.max(0.1, noise * 6);
+      if (frame.time - began >= 0.35 && frame.time - lastGreeting >= 1.8 &&
+        peakContrast > strongThreshold) {
+        active = { baseline, contrast: peakContrast, time: frame.time, settled: 0 };
+        candidate = null;
+        lastGreeting = frame.time;
+        return { contrast: peakContrast, source: frame.seq, time: frame.time };
+      }
       if (candidate) {
         const contrast = Math.abs(candidate.center - candidate.baseline);
         const sameDirection =
@@ -72,8 +83,8 @@ export function createGestureDetector() {
         candidate = null;
       }
       if (
-        frame.time - began >= 0.75 &&
-        frame.time - lastGreeting >= 3 &&
+        frame.time - began >= 0.35 &&
+        frame.time - lastGreeting >= 1.8 &&
         step > threshold &&
         deviation > threshold
       ) {

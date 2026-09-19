@@ -14,6 +14,7 @@ import { AudioCore, RELEASE_SECONDS, type Bank } from './sonora/dsp.ts';
 import {
   defaultConfiguration,
   preset,
+  soundSlots,
   type Configuration,
 } from './sonora/presets.ts';
 export const LIVE_DELAY = 0.12;
@@ -135,6 +136,7 @@ export class LiveMusicEngine {
     );
   }
   get status(): LiveStatus {
+    const slots = soundSlots(this.config);
     return {
       ...this.audio.status,
       phase: Number.isFinite(this.stoppedAt)
@@ -144,8 +146,10 @@ export class LiveMusicEngine {
           : this.elapsed - this.lastFrame > GAP_SECONDS
             ? 'gap'
             : 'playing',
-      synth: preset(this.config.synth.preset).name,
-      instrument: preset(this.config.instrument.preset).name,
+      synth: slots.filter((slot) => slot.kind === 'synth')
+        .map((slot) => preset(slot.patch.preset).name).join(' · '),
+      instrument: slots.filter((slot) => slot.kind === 'instrument')
+        .map((slot) => preset(slot.patch.preset).name).join(' · '),
       note: this.lastNote,
     };
   }

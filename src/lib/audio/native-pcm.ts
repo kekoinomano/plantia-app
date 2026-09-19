@@ -15,8 +15,11 @@ type Module = {
 };
 const lanes: Lane[] = ["synth", "instrument", "greeting"];
 const families = ["", "glass", "plume", "choir", "strings", "reed"];
-const patch = (level: number, p: Patch) => [level, +p.delay.on, p.delay.wet, p.delay.rate,
+type BusPatch = Pick<Patch, 'delay' | 'chorus' | 'reverb'>;
+const patch = (level: number, p: BusPatch) => [level, +p.delay.on, p.delay.wet, p.delay.rate,
   +p.chorus.on, p.chorus.depth, p.chorus.rate, +p.reverb.on, p.reverb.wet, p.reverb.amount];
+const mixSignature = (channels: ReturnType<typeof audioChannels>) =>
+  JSON.stringify(channels.map((channel) => patch(channel.level, channel.patch)));
 
 /** Preset/note preparation stays in TS; only the per-sample loop is compiled. */
 export class NativePcmCore {
@@ -54,10 +57,11 @@ export class NativePcmCore {
     this.module.retain(this.id, [...this.samples.values()]);
     const channels = audioChannels(config);
     const reset = channels.map((c) => c.id).join('|') !== this.channels.map((c) => c.id).join('|');
-    this.channels = channels;
-    this.module.configure(this.id, [
+    const mixChanged = reset || mixSignature(channels) !== mixSignature(this.channels);
+    if (mixChanged) this.module.configure(this.id, [
       +reset, ...channels.flatMap((c) => [lanes.indexOf(c.kind), ...patch(c.level, c.patch)]),
     ]);
+    this.channels = channels;
   }
 
   schedule(events: Event[]) {
@@ -70,6 +74,12 @@ export class NativePcmCore {
         if ((e.slot || e.lane) && index < 0) continue;
         this.module.schedule(this.id, [2, e.time, index]);
       }
+      else if (e.type === "mix") {
+        const channel = this.channels.findIndex((candidate) => candidate.id === e.slot);
+        if (channel < 0) continue;
+        this.module.schedule(this.id, [3, e.time, channel, ...patch(e.mix.level, e.mix),
+          e.mix.smoothing]);
+      }
       else {
         const channel = this.channels.findIndex((c) => e.note.slot ? c.id === e.note.slot : c.kind === e.note.lane);
         if (channel < 0) continue;
@@ -78,10 +88,12 @@ export class NativePcmCore {
         this.module.schedule(this.id, [0, e.time, e.note.id, e.note.time, e.note.sourceTime,
           channel, v.stop, v.attack, v.release,
           v.sample ? this.samples.get(v.sample)! : 0, v.sample2 ? this.samples.get(v.sample2)! : 0,
-          v.increment, v.increment2, v.detuneRatio, v.frequency, v.attenuation, v.panL, v.panR, v.gain,
+          v.position, v.position2, v.increment, v.increment2,
+          v.detuneRatio, v.frequency, v.attenuation, v.panL, v.panR, v.gain,
           e.note.color, e.note.pan, v.model === "bowl" ? 2 : v.model ? 1 : 0,
           Math.max(0, families.indexOf(v.design.family)), v.design.evolution, v.design.decay,
-          v.design.blend, v.design.trace, ...v.harmonics, ...v.ratios, v.phase, v.phase2]);
+          v.design.blend, v.design.trace, ...v.harmonics, ...v.ratios, v.phase, v.phase2,
+          ...v.pitchCurve]);
       }
     }
     this.refresh();

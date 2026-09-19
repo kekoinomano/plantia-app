@@ -29,13 +29,13 @@ inline double sine(double phase) {
 struct Patch { double delayOn=0, delayWet=0, delayRate=50, chorusOn=0, depth=0, chorusRate=0, reverbOn=0, reverbWet=0, amount=0; };
 struct Effects {
   std::vector<float> dl, dr;
-  std::array<std::vector<float>,4> lines;
-  std::array<size_t,4> indices{};
-  std::array<double,4> damp{};
-  size_t at=0; double phase=0, rate;
+  std::array<std::vector<float>,8> lines;
+  std::array<size_t,8> indices{};
+  std::array<double,8> damp{};
+  size_t at=0; double phase=0,rate,reverbLowL=0,reverbLowR=0;
   explicit Effects(double r):dl(std::ceil(r*1.3)),dr(dl.size()),rate(r) {
-    double lengths[]={.097,.131,.173,.211};
-    for(int j=0;j<4;j++) lines[j].resize(std::ceil(r*lengths[j]));
+    double lengths[]={.071,.089,.113,.131,.149,.173,.197,.227};
+    for(int j=0;j<8;j++) lines[j].resize(std::ceil(r*lengths[j]));
   }
   double tap(const std::vector<float>& b, double seconds) const {
     double x=std::fmod(double(at)-seconds*rate+b.size(),double(b.size()));
@@ -51,16 +51,18 @@ struct Effects {
       l=l*(1-depth*.35)+cl*depth*.35; r=r*(1-depth*.35)+cr*depth*.35;
     }
     if(p.delayOn) {double wet=clamp((p.delayWet+space*.5)/100); l=l*(1-wet)+echoL*wet; r=r*(1-wet)+echoR*wet;}
-    double sum=0;
-    for(int j=0;j<4;j++){damp[j]+=(lines[j][indices[j]]-damp[j])*.3;sum+=damp[j];}
-    double feedback=.48+p.amount/100*.4;
-    for(int j=0;j<4;j++) {
-      lines[j][indices[j]]=(j%2?r:l)*.3+(sum*.5-damp[j])*feedback;
+    reverbLowL+=(l-reverbLowL)*.018;reverbLowR+=(r-reverbLowR)*.018;
+    double reverbInL=l-reverbLowL*.82,reverbInR=r-reverbLowR*.82;
+    double damping=.14+(1-p.amount/100)*.12,sum=0;
+    for(int j=0;j<8;j++){damp[j]+=(lines[j][indices[j]]-damp[j])*damping;sum+=damp[j];}
+    double feedback=.54+p.amount/100*.35;
+    for(int j=0;j<8;j++) {
+      lines[j][indices[j]]=(j%2?reverbInR:reverbInL)*.22+(sum*.25-damp[j])*feedback;
       indices[j]=(indices[j]+1)%lines[j].size();
     }
-    double earlyL=tap(dl,.023),earlyR=tap(dr,.031);
-    double wetL=earlyL*.78+(damp[0]+damp[1]-damp[2]-damp[3])*.22;
-    double wetR=earlyR*.78+(damp[0]-damp[1]+damp[2]-damp[3])*.22;
+    double earlyL=tap(dl,.013),earlyR=tap(dr,.019);
+    double wetL=earlyL*.08+(damp[0]+damp[1]-damp[2]+damp[3]-damp[4]+damp[5]-damp[6]+damp[7])*.18;
+    double wetR=earlyR*.08+(damp[0]-damp[1]+damp[2]+damp[3]-damp[4]-damp[5]+damp[6]-damp[7])*.18;
     at=(at+1)%dl.size();
     if(p.reverbOn){double wet=clamp((p.reverbWet+space)/100);l=l*(1-wet)+wetL*wet;r=r*(1-wet)+wetR*wet;}
     return {l,r};
@@ -71,18 +73,21 @@ struct Voice {
   double position=0, position2=0, increment=0, increment2=0, phase=0, phase2=.07, phase3=.37;
   double detuneRatio=1, frequency=0, filterState=0, attenuation=1, panL=0, panR=0, gain=0, color=0, pan=0;
   double evolution=0, decay=0, blend=0;
+  std::array<double,3> pitchCurve{};
   int lane=0, kind=0, model=0, family=0, trace=0;
   std::array<double,8> harmonics{}; std::array<double,4> ratios{};
   std::shared_ptr<std::vector<float>> sample, sample2;
 };
-struct Event {int type=0,lane=-1;double time=0,smoothing=.4; Voice voice; std::array<double,13> expression{};};
+struct Event {int type=0,lane=-1;double time=0,smoothing=.4,level=0; Patch patch; Voice voice; std::array<double,13> expression{};};
 class Core {
   double rate,duck=1,synthDuck=1,greetingAt=-INF,instrumentAt=-INF,dcL=0,dcR=0,smoothing=.4;
   uint64_t cursor=0;
   std::vector<double> levels;
+  std::vector<double> targetLevels,mixSlews;
   std::vector<int> kinds;
   std::array<double,3> meters{};
   std::vector<Patch> patches;
+  std::vector<Patch> targetPatches;
   std::vector<Effects> buses;
   std::array<double,13> expression{.35,.3,0,.33,.33,.33,.33,.33,.33,.33,.33,.33,0};
   std::array<double,13> target=expression;
@@ -116,28 +121,34 @@ public:
       for(size_t j=0;j<count;j++)buses.emplace_back(rate);
       duck=synthDuck=1;greetingAt=instrumentAt=-INF;
     }
-    levels.resize(count);kinds.resize(count);patches.resize(count);
+    levels.resize(count);targetLevels.resize(count);mixSlews.resize(count);
+    kinds.resize(count);patches.resize(count);targetPatches.resize(count);
     for(size_t j=0;j<count;j++) {
       size_t o=legacy?j*10:1+j*11+1;
       kinds[j]=legacy?int(j):int(p[o-1]);
       if(kinds[j]<0||kinds[j]>2)throw std::invalid_argument("Invalid channel kind");
-      levels[j]=p[o];patches[j]={p[o+1],p[o+2],p[o+3],p[o+4],p[o+5],p[o+6],p[o+7],p[o+8],p[o+9]};
+      Patch next={p[o+1],p[o+2],p[o+3],p[o+4],p[o+5],p[o+6],p[o+7],p[o+8],p[o+9]};
+      if(reset){levels[j]=p[o];patches[j]=next;}
+      targetLevels[j]=p[o];targetPatches[j]=next;
+      mixSlews[j]=1-std::exp(-1/(.12*rate));
     }
   }
   void schedule(const double* p,size_t n) {
     if(n<2)throw std::invalid_argument("Invalid event");
     Event e; e.type=int(p[0]);e.time=p[1];
     if(e.type==0) {
-      if(n!=41)throw std::invalid_argument("Invalid note");
+      if(n!=46)throw std::invalid_argument("Invalid note");
       auto& v=e.voice;
       v.id=p[2];v.time=p[3];v.sourceTime=p[4];v.lane=int(p[5]);v.stop=p[6];v.attack=p[7];v.release=p[8];
       auto get=[&](int id){auto it=samples.find(id);return it==samples.end()?std::shared_ptr<std::vector<float>>{}:it->second;};
-      v.sample=get(int(p[9]));v.sample2=get(int(p[10]));v.increment=p[11];v.increment2=p[12];
-      v.detuneRatio=p[13];v.frequency=p[14];v.attenuation=p[15];v.panL=p[16];v.panR=p[17];v.gain=p[18];
-      v.color=p[19];v.pan=p[20];v.model=int(p[21]);v.family=int(p[22]);v.evolution=p[23];v.decay=p[24];v.blend=p[25];v.trace=int(p[26]);
-      for(int j=0;j<8;j++)v.harmonics[j]=p[27+j];
-      for(int j=0;j<4;j++)v.ratios[j]=p[35+j];
-      v.phase=p[39];v.phase2=p[40];
+      v.sample=get(int(p[9]));v.sample2=get(int(p[10]));v.position=p[11];v.position2=p[12];
+      v.increment=p[13];v.increment2=p[14];v.detuneRatio=p[15];v.frequency=p[16];
+      v.attenuation=p[17];v.panL=p[18];v.panR=p[19];v.gain=p[20];
+      v.color=p[21];v.pan=p[22];v.model=int(p[23]);v.family=int(p[24]);v.evolution=p[25];v.decay=p[26];v.blend=p[27];v.trace=int(p[28]);
+      for(int j=0;j<8;j++)v.harmonics[j]=p[29+j];
+      for(int j=0;j<4;j++)v.ratios[j]=p[37+j];
+      v.phase=p[41];v.phase2=p[42];
+      for(int j=0;j<3;j++)v.pitchCurve[j]=p[43+j];
       if(v.lane<0||size_t(v.lane)>=kinds.size())throw std::invalid_argument("Invalid lane");
       v.kind=kinds[v.lane];
     } else if(e.type==1) {
@@ -146,6 +157,12 @@ public:
       if(n==16){e.expression[12]=clamp(p[14],-20,20);e.smoothing=std::max(.05,p[15]);}
     } else if(e.type==2) {
       if(n!=3)throw std::invalid_argument("Invalid release");e.lane=int(p[2]);
+    } else if(e.type==3) {
+      if(n!=14)throw std::invalid_argument("Invalid mix");
+      e.lane=int(p[2]);e.level=clamp(p[3]);
+      e.patch={p[4],p[5],p[6],p[7],p[8],p[9],p[10],p[11],p[12]};
+      e.smoothing=std::max(.05,p[13]);
+      if(e.lane<0||size_t(e.lane)>=kinds.size())throw std::invalid_argument("Invalid mix lane");
     } else throw std::invalid_argument("Invalid event type");
     pending.push_back(std::move(e));
     std::stable_sort(pending.begin(),pending.end(),[](const Event&a,const Event&b){return a.time<b.time;});
@@ -169,7 +186,7 @@ public:
             if(e.voice.kind==1&&levels[e.voice.lane]>0)instrumentAt=t;
           }
         } else if(e.type==1){target=e.expression;smoothing=e.smoothing;slew=1-std::exp(-1/(smoothing*rate));}
-        else {
+        else if(e.type==2) {
           for(auto& v:voices)if(e.lane<0||v.lane==e.lane) {
             if(v.kind==0)v.stop=std::min(v.stop,t);else v.forced=std::min(v.forced,t+.15);
           }
@@ -177,9 +194,20 @@ public:
             const auto& q=pending[j];
             if(q.type==0&&q.voice.sourceTime<=e.time&&(e.lane<0||q.voice.lane==e.lane))cancelled.insert(q.voice.id);
           }
+        } else {
+          targetLevels[e.lane]=e.level;targetPatches[e.lane]=e.patch;
+          mixSlews[e.lane]=1-std::exp(-1/(e.smoothing*rate));
         }
       }
       for(int j=0;j<13;j++)expression[j]+=(target[j]-expression[j])*slew;
+      for(size_t j=0;j<levels.size();j++) {
+        double s=mixSlews[j];levels[j]+=(targetLevels[j]-levels[j])*s;
+        auto&p=patches[j];const auto&t=targetPatches[j];
+        p.delayOn=t.delayOn;p.chorusOn=t.chorusOn;p.reverbOn=t.reverbOn;
+        p.delayWet+=(t.delayWet-p.delayWet)*s;p.delayRate+=(t.delayRate-p.delayRate)*s;
+        p.depth+=(t.depth-p.depth)*s;p.chorusRate+=(t.chorusRate-p.chorusRate)*s;
+        p.reverbWet+=(t.reverbWet-p.reverbWet)*s;p.amount+=(t.amount-p.amount)*s;
+      }
       double brightness=clamp(expression[0]),energy=clamp(expression[1]);
       std::array<double,9> left{},right{};
       for(auto& v:voices) {
@@ -200,13 +228,17 @@ public:
           for(int j=0;j<4;j++)if(v.frequency*v.ratios[j]<rate*.43)
             value+=sine(age*v.frequency*v.ratios[j])*std::exp(-age*(1+j*.6)/(v.model==2?2.8:1.4))*(j?.3/(j+1):1);
         } else {
-          v.phase+=v.frequency/rate;v.phase-=int(v.phase);
+          double progress=clamp(age/std::max(.001,v.stop-v.time));
+          double curveAt=progress<.5?smooth(progress*2)*(v.pitchCurve[1]-v.pitchCurve[0])+v.pitchCurve[0]
+            :smooth((progress-.5)*2)*(v.pitchCurve[2]-v.pitchCurve[1])+v.pitchCurve[1];
+          double frequency=v.frequency*std::pow(2.,curveAt/12.);
+          v.phase+=frequency/rate;v.phase-=int(v.phase);
           double livingDetune=1+std::max(.002,v.detuneRatio-1)*(.85+energy*.3);
-          v.phase2+=v.frequency*livingDetune/rate;v.phase2-=int(v.phase2);
-          v.phase3+=v.frequency/(livingDetune*rate);v.phase3-=int(v.phase3);
+          v.phase2+=frequency*livingDetune/rate;v.phase2-=int(v.phase2);
+          v.phase3+=frequency/(livingDetune*rate);v.phase3-=int(v.phase3);
           double breathe=sine(age*v.evolution+v.color),decay=.35+.65/(1+age*v.decay);
           for(int j=0;j<8;j++) {
-            if(v.frequency*(j+1)>=rate*.42)continue;
+            if(frequency*(j+1)>=rate*.42)continue;
             double band=expression[3+(j+v.trace)%9],weight=j?.6+brightness*.4+band*.55:.65;
             if(v.family==1)weight*=j?decay:.8;
             else if(v.family==2)weight*=j?decay*decay:.55+decay*.45;
@@ -217,8 +249,8 @@ public:
             double partial=sine(v.phase*(j+1))*.4+sine(v.phase2*(j+1))*.3+sine(v.phase3*(j+1))*.3;
             value+=partial*v.harmonics[j]*weight;
           }
-          value*=(.78+energy*.14+breathe*.16)*std::min(1.,std::sqrt(880/v.frequency));
-          double cutoff=std::min(rate*.18,(480+v.frequency*.65+brightness*brightness*1800+energy*420)*(.82+.18*sine(age*(.035+v.evolution*.12)+v.color)));
+          value*=(.78+energy*.14+breathe*.16)*std::min(1.,std::sqrt(880/frequency));
+          double cutoff=std::min(rate*.18,(480+frequency*.65+brightness*brightness*1800+energy*420)*(.82+.18*sine(age*(.035+v.evolution*.12)+v.color)));
           v.filterState+=(value-v.filterState)*(1-std::exp(-TAU*cutoff/rate));value=v.filterState;
         }
         /* Alternative wind-chime timbre (inactive).
@@ -241,7 +273,7 @@ public:
       duck+=(duckTarget-duck)*(duckTarget<duck?duckAttack:duckRelease);
       bool audibleInstrument=false;
       for(size_t j=0;j<levels.size();j++)if(kinds[j]==1&&levels[j]>0)audibleInstrument=true;
-      double synthDuckTarget=t-instrumentAt<.32&&audibleInstrument?.62:1;
+      double synthDuckTarget=t-instrumentAt<.32&&audibleInstrument?.82:1;
       synthDuck+=(synthDuckTarget-synthDuck)*(synthDuckTarget<synthDuck?duckAttack:duckRelease);
       double outL=0,outR=0;
       for(size_t j=0;j<levels.size();j++) {
@@ -252,7 +284,7 @@ public:
         maxima[kind]=std::max(maxima[kind],std::max(std::abs(b[0]*gain),std::abs(b[1]*gain)));
       }
       dcL+=(outL-dcL)*dc;dcR+=(outR-dcR)*dc;
-      l[i]=std::tanh((outL-dcL)*4.125)*.9;r[i]=std::tanh((outR-dcR)*4.125)*.9;
+      l[i]=std::tanh((outL-dcL)*5.5)*.94;r[i]=std::tanh((outR-dcR)*5.5)*.94;
       if(cursor%128==0)voices.erase(std::remove_if(voices.begin(),voices.end(),[t](const Voice&v){return !(t<std::min(v.stop+v.release,v.forced));}),voices.end());
     }
     pending.erase(pending.begin(),pending.begin()+atEvent);

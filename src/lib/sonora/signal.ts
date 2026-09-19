@@ -25,6 +25,16 @@ export type Frame = {
   spectrum: number[];
   profile: number[];
   cadence: number;
+  /** Strongest packet-level excursion retained even when the 250 ms median stays calm. */
+  peakCenter?: number;
+  peakContrast?: number;
+  /** Robust mean seconds per packet over the latest accepted ten-packet window. */
+  packetCadence?: number;
+  /** Signed log change at the latest confirmed packet-speed regime transition. */
+  packetTempoChange?: number;
+  /** Increments when packet arrival speed settles into a substantially new regime. */
+  packetRegime?: number;
+  packetConfidence?: number;
 };
 export type Analysis = {
   frames: Frame[];
@@ -54,6 +64,10 @@ function describe(
   time: number,
   seq: number,
   cadence: number,
+  packetCadence?: number,
+  packetTempoChange = 0,
+  packetRegime = 0,
+  packetConfidence = 0,
 ): Frame {
   const log = values.map(signedLog),
     center = median(log);
@@ -86,6 +100,10 @@ function describe(
         residual[Math.min(log.length - 1, Math.floor((j * log.length) / 10))],
     ),
     cadence,
+    packetCadence,
+    packetTempoChange,
+    packetRegime,
+    packetConfidence,
   };
 }
 export function createSignalAccumulator(onFrame: (frame: Frame) => void) {
@@ -94,16 +112,106 @@ export function createSignalAccumulator(onFrame: (frame: Frame) => void) {
     invalid = 0,
     suspect = 0,
     lastTime = -Infinity,
-    lastSeq = -1;
+    lastSeq = -1,
+    cadenceWindow: number[] = [],
+    cadenceCandidate: number[] = [],
+    cadenceReference = 0,
+    cadenceDirection = 0,
+    cadenceStreak = 0,
+    cadenceStartedAt = -Infinity,
+    lastRegimeTime = -Infinity,
+    packetRegime = 0,
+    packetTempoChange = 0;
+  let lastFrameCenter = 0,
+    hasFrameCenter = false;
+  const cadenceMean = () => mean(cadenceWindow.slice(-10));
+  const acceptCadence = (interval: number, time: number) => {
+    if (!(interval > 0) || interval > GAP_SECONDS) {
+      if (interval > GAP_SECONDS) {
+        cadenceWindow = [];
+        cadenceCandidate = [];
+        cadenceReference = 0;
+        cadenceStartedAt = -Infinity;
+        cadenceDirection = cadenceStreak = 0;
+        packetTempoChange = 0;
+      }
+      return;
+    }
+    if (!Number.isFinite(cadenceStartedAt)) cadenceStartedAt = time;
+    // Bluetooth connection startup contains scheduling gaps and short packet bursts.
+    // Learn through that transient, but never promote it to a plant regime.
+    if (time - cadenceStartedAt < 12) {
+      cadenceCandidate = [];
+      cadenceWindow.push(interval);
+      cadenceWindow = cadenceWindow.slice(-10);
+      if (cadenceWindow.length >= 6) cadenceReference = cadenceMean();
+      return;
+    }
+    const typical = cadenceReference;
+    const extreme = typical > 0 && (interval > typical * 4 || interval < typical / 4);
+    if (extreme) {
+      const candidateMean = mean(cadenceCandidate);
+      const consistent = !candidateMean ||
+        interval <= candidateMean * 2.2 && interval >= candidateMean / 2.2;
+      cadenceCandidate = consistent ? [...cadenceCandidate, interval].slice(-3) : [interval];
+      // A lone transport hiccup is ignored. Three similarly fast/slow intervals
+      // are a real regime candidate and become the start of the new window.
+      if (cadenceCandidate.length < 3) return;
+      const before = Math.max(0.0001, typical);
+      const after = mean(cadenceCandidate);
+      cadenceWindow = [...cadenceCandidate];
+      cadenceCandidate = [];
+      if (time - lastRegimeTime >= 18) {
+        cadenceReference = after;
+        packetTempoChange = clamp(Math.log2(before / after) / 4, -1, 1);
+        packetRegime++;
+        lastRegimeTime = time;
+      }
+      cadenceDirection = cadenceStreak = 0;
+      return;
+    }
+    cadenceCandidate = [];
+    cadenceWindow.push(interval);
+    cadenceWindow = cadenceWindow.slice(-10);
+    const current = cadenceMean();
+    if (!cadenceReference && cadenceWindow.length >= 6) cadenceReference = current;
+    if (!cadenceReference || cadenceWindow.length < 6) return;
+    const ratio = current / cadenceReference;
+    const direction = ratio > 1.65 ? 1 : ratio < 0.61 ? -1 : 0;
+    if (direction) {
+      cadenceStreak = direction === cadenceDirection ? cadenceStreak + 1 : 1;
+      cadenceDirection = direction;
+      if (cadenceStreak >= 3 && time - lastRegimeTime >= 18) {
+        const before = cadenceReference;
+        cadenceReference = current;
+        packetTempoChange = clamp(Math.log2(before / current) / 4, -1, 1);
+        packetRegime++;
+        lastRegimeTime = time;
+        cadenceDirection = cadenceStreak = 0;
+      }
+    } else {
+      cadenceDirection = cadenceStreak = 0;
+      // Follow ordinary drift very slowly, preserving sensitivity to a real jump.
+      cadenceReference += (current - cadenceReference) * 0.015;
+    }
+  };
   const flush = () => {
     if (!bucket.length) return;
     const first = bucket[0];
+    const latest = bucket.at(-1)!;
+    const center = median(bucket.map((f) => f.center));
+    const baseline = hasFrameCenter ? lastFrameCenter : center;
+    const peak = bucket.reduce((strongest, frame) =>
+      Math.abs(frame.center - baseline) > Math.abs(strongest - baseline) ? frame.center : strongest,
+    center);
     onFrame({
       ...first,
-      time: bucket.at(-1)!.time,
-      seq: bucket.at(-1)!.seq,
+      time: latest.time,
+      seq: latest.seq,
       level: mean(bucket.map((f) => f.level)),
-      center: median(bucket.map((f) => f.center)),
+      center,
+      peakCenter: peak,
+      peakContrast: Math.abs(peak - baseline),
       spread: mean(bucket.map((f) => f.spread)),
       roughness: mean(bucket.map((f) => f.roughness)),
       slope: mean(bucket.map((f) => f.slope)),
@@ -114,7 +222,13 @@ export function createSignalAccumulator(onFrame: (frame: Frame) => void) {
       profile: first.profile.map((_, j) =>
         mean(bucket.map((f) => f.profile[j])),
       ),
+      packetCadence: latest.packetCadence,
+      packetTempoChange: latest.packetTempoChange,
+      packetRegime: latest.packetRegime,
+      packetConfidence: latest.packetConfidence,
     });
+    lastFrameCenter = center;
+    hasFrameCenter = true;
     bucket = [];
   };
   const push = (p: Recording['packets'][number]) => {
@@ -144,7 +258,10 @@ export function createSignalAccumulator(onFrame: (frame: Frame) => void) {
     const cadence = Number.isFinite(lastTime)
       ? (p.elapsed_ms - lastTime) / 1000
       : 0;
-    bucket.push(describe(p.values, p.elapsed_ms / 1000, p.seq, cadence));
+    acceptCadence(cadence, p.elapsed_ms / 1000);
+    bucket.push(describe(p.values, p.elapsed_ms / 1000, p.seq, cadence,
+      cadenceWindow.length ? cadenceMean() : undefined, packetTempoChange,
+      packetRegime, Math.min(1, cadenceWindow.length / 10)));
     lastTime = p.elapsed_ms;
     lastSeq = p.seq;
   };

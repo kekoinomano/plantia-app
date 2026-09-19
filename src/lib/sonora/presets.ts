@@ -1,19 +1,5 @@
 import { mood, type MoodSlot, type SoundFamily } from './moods.ts';
-/** Sonora preset format v1: JSON-compatible; old saved configurations remain valid. */
-export const NOTE_NAMES = [
-  'C',
-  'C#',
-  'D',
-  'D#',
-  'E',
-  'F',
-  'F#',
-  'G',
-  'G#',
-  'A',
-  'A#',
-  'B',
-];
+/** Raw timbre catalogue. A mood turns these sources into playable voices. */
 export const SCALES: Record<string, number[]> = {
   Chromatic: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
   Ionian: [0, 2, 4, 5, 7, 9, 11],
@@ -51,21 +37,18 @@ export type Patch = {
   envelope: { on: boolean; release: number; attack: number };
 };
 export type Configuration = {
-  version: 1;
-  mood?: string;
-  plantResponse?: number;
-  slots?: SoundSlot[];
-  synth: Patch;
-  instrument: Patch;
-  synthMotion: { transition: number; stability: number };
+  version: 2;
+  mood: string;
+  plantResponse: number;
+  /** The only pitch configuration shared by every pitched voice. */
+  harmony: { scale: string; notes: number[]; tuning: number };
+  slots: SoundSlot[];
+  /** Internal score tempo multiplier; deliberately not exposed in the UI. */
   speed: number;
-  synthLevel: number;
-  instrumentLevel: number;
   greetingLevel: number;
 };
 export type SoundSlot = {
   id: string; kind: 'synth' | 'instrument'; patch: Patch; level: number;
-  motion?: { transition: number; stability: number };
 };
 export type Preset = {
   id: string;
@@ -101,6 +84,10 @@ const synths: Row[] = [
   ['Lead', 'Min Pentatonic', '3-5', '73/75', '100/99', '73/11', '50/73'],
   ['Infinity', 'Maj Pentatonic', '3-6', '14/99', '52/86', '95/52', '100/26'],
   ['Non Duality', 'Ryukyu', '3-5', '90/34', '19/99', '73/63', '100/9'],
+  ['Ballena', 'Min Pentatonic', '2-4', '72/76', '86/88', '100/14', '100/32'],
+  ['Meadow', 'Maj Pentatonic', '2-5', '-', '22/72', '4/14', '84/72'],
+  ['Velvet', 'Doric', '2-5', '-', '24/74', '6/16', '86/76'],
+  ['Prism Dust', 'Doric', '3-5', '-', '27/78', '10/20', '90/68'],
 ];
 const instruments: Row[] = [
   ['Bongos', '0,1', '4-4', '-', '12/20', '-', '12/0', 'bongos'],
@@ -272,98 +259,68 @@ function make(row: Row, kind: Preset['kind'], flavor: number): Preset {
     },
   };
 }
-export const SYNTHS = synths.map((r, i) => make(r, 'synth', i));
-export const INSTRUMENTS = instruments.map((r, i) => make(r, 'instrument', i));
+const SYNTHS = synths.map((r, i) => make(r, 'synth', i));
+const INSTRUMENTS = instruments.map((r, i) => make(r, 'instrument', i));
 export const PRESETS = [...SYNTHS, ...INSTRUMENTS];
 export const TUNINGS = [420, 432, 440, 464];
 export const preset = (id: string) =>
   PRESETS.find((p) => p.id === id) ?? SYNTHS[0];
-export const copyPatch = (id: string): Patch =>
+const copyPatch = (id: string): Patch =>
   JSON.parse(JSON.stringify(preset(id).patch));
 export function defaultConfiguration(): Configuration {
-  return {
-    version: 1,
-    mood: 'organic',
+  const definition = mood('organic');
+  const harmony = {
+    scale: definition.score.harmony.scale,
+    notes: [...definition.score.harmony.notes],
+    tuning: definition.score.harmony.tuning,
+  };
+  const config: Configuration = {
+    version: 2,
+    mood: definition.id,
     plantResponse: 1,
-    synth: copyPatch('healing'),
-    instrument: copyPatch('harp'),
-    synthMotion: { transition: 4.5, stability: 78 },
+    harmony,
+    slots: [],
     speed: 1,
-    synthLevel: 0.55,
-    instrumentLevel: 0.95,
     greetingLevel: 1,
   };
+  config.slots = soundSlots(config);
+  return config;
 }
 const limit = (n: number, a: number, b: number) =>
   Number.isFinite(n) ? Math.max(a, Math.min(b, n)) : a;
 export function sanitizeConfiguration(input: Configuration): Configuration {
-  const c = JSON.parse(JSON.stringify(input)) as Configuration;
-  c.mood = mood(c.mood).id;
-  c.plantResponse = limit(c.plantResponse ?? 1, 0, 1);
-  const definition = mood(c.mood);
+  const source = JSON.parse(JSON.stringify(input)) as Configuration;
+  const definition = mood(source.mood);
   if (definition.slots.length > 8) throw Error('Un mood admite hasta ocho sonidos');
-  c.slots = definition.slots.map((slot) => {
-    const saved = c.slots?.find((s) => s.id === slot.id);
-    const legacy = !c.slots && definition.id === 'organic' ? c[slot.kind] : undefined;
-    const patch = saved?.patch ?? legacy ?? copyPatch(slot.defaultPreset);
-    if (!allowedPresets(slot).some((p) => p.id === patch.preset))
-      throw Error(`Sonido no compatible con ${slot.label}`);
-    return { id: slot.id, kind: slot.kind, patch,
-      ...(slot.kind === 'synth' ? { motion: saved?.motion ?? c.synthMotion ?? { transition: 4.5, stability: 78 } } : {}),
-      level: limit(saved?.level ?? (legacy ? c[slot.kind === 'synth' ? 'synthLevel' : 'instrumentLevel'] : slot.level), 0, 1) };
+  const requested = source.harmony ?? definition.score.harmony;
+  const notes = [...new Set(requested.notes.filter((note) =>
+    Number.isInteger(note) && note >= 0 && note < 12))].sort((a, b) => a - b);
+  const harmony = {
+    scale: notes.length ? requested.scale : definition.score.harmony.scale,
+    notes: notes.length ? notes : [...definition.score.harmony.notes],
+    tuning: limit(requested.tuning, 392, 494),
+  };
+  const slots = definition.slots.map((slot) => {
+    const saved = source.slots?.find((candidate) => candidate.id === slot.id);
+    const chosen = !slot.hidden && slot.kind === 'instrument' && saved &&
+      allowedPresets(slot).some((candidate) => candidate.id === saved.patch.preset)
+      ? saved.patch.preset : slot.defaultPreset;
+    return {
+      id: slot.id,
+      kind: slot.kind,
+      patch: orchestraPatch(slot, harmony, chosen),
+      level: limit(slot.hidden ? slot.level : saved?.level ?? slot.level, 0, 1),
+    };
   });
-  const synthMotion = c.synthMotion as Configuration['synthMotion'] & {
-    glide?: number;
+  return {
+    version: 2,
+    mood: definition.id,
+    plantResponse: limit(source.plantResponse ?? 1, 0, 1),
+    harmony,
+    slots,
+    speed: limit(source.speed ?? 1, 0.25, 2),
+    greetingLevel: limit(source.greetingLevel ?? 1, 0, 1),
   };
-  c.synthMotion = {
-    transition: limit(synthMotion?.transition ?? synthMotion?.glide ?? 4.5, 1, 8),
-    stability: limit(synthMotion?.stability ?? 78, 0, 100),
-  };
-  for (const slot of c.slots) {
-    const lane = slot.kind, p = slot.patch;
-    if (lane === 'synth') slot.motion = {
-      transition: limit(slot.motion?.transition ?? 4.5, 1, 8),
-      stability: limit(slot.motion?.stability ?? 78, 0, 100),
-    };
-    if (!PRESETS.some((x) => x.id === p.preset && x.kind === lane))
-      throw Error('Preset no válido');
-    p.notes = [
-      ...new Set(
-        p.notes.filter((n) => Number.isInteger(n) && n >= 0 && n < 12),
-      ),
-    ].sort((a, b) => a - b);
-    if (!p.notes.length) throw Error('Selecciona al menos una nota');
-    p.octaves = [
-      Math.round(limit(p.octaves[0], 1, 6)),
-      Math.round(limit(p.octaves[1], 1, 6)),
-    ].sort((a, b) => a - b) as [number, number];
-    p.tuning = limit(p.tuning, 392, 494);
-    for (const effect of [p.delay, p.reverb, p.chorus, p.envelope])
-      for (const key of Object.keys(effect))
-        if (key !== 'on')
-          (effect as unknown as Record<string, number>)[key] = limit(
-            (effect as unknown as Record<string, number>)[key],
-            0,
-            100,
-          );
-    p.velocity = {
-      range: limit(p.velocity.range, 0, 127),
-      center: limit(p.velocity.center, 0, 127),
-    };
-  }
-  c.speed = limit(c.speed, 0.25, 2);
-  c.synthLevel = limit(c.synthLevel, 0, 1);
-  c.instrumentLevel = limit(c.instrumentLevel, 0, 1);
-  c.greetingLevel = limit(c.greetingLevel, 0, 1);
-  // Compatibility views for the original Organic strategy and older callers.
-  for (const kind of ['synth', 'instrument'] as const) {
-    const slot = c.slots.find((s) => s.kind === kind);
-    c[kind] = slot?.patch ?? copyPatch(kind === 'synth' ? 'healing' : 'harp');
-    c[kind === 'synth' ? 'synthLevel' : 'instrumentLevel'] = slot?.level ?? 0;
-    if (kind === 'synth' && slot?.motion) c.synthMotion = slot.motion;
-  }
-  c.version = 1;
-  return c;
 }
 export function notePool(p: Patch) {
   const hits = preset(p.preset).percussion;
@@ -378,20 +335,56 @@ export function notePool(p: Patch) {
 export function greetingPatch(instrument: Patch): Patch {
   return {
     ...instrument,
-    delay: { on: true, wet: 12, rate: 92 },
-    reverb: { on: true, wet: 18, amount: 20 },
-    chorus: { on: true, depth: 12, rate: 18 },
-    envelope: { on: true, attack: 0, release: 10 },
+    delay: { on: false, wet: 0, rate: 82 },
+    reverb: { on: true, wet: 21, amount: 68 },
+    chorus: { on: false, depth: 0, rate: 18 },
+    envelope: { on: true, attack: 0, release: 48 },
   };
 }
 
 export const allowedPresets = (slot: MoodSlot) => PRESETS.filter((p) =>
   p.kind === slot.kind && (!slot.families || slot.families.includes(p.family)));
-export const soundSlots = (config: Configuration): SoundSlot[] => config.slots ??
-  mood(config.mood).slots.map((s) => ({ id: s.id, kind: s.kind,
-    ...(s.kind === 'synth' ? { motion: config.synthMotion } : {}),
-    patch: mood(config.mood).id === 'organic' ? config[s.kind] : copyPatch(s.defaultPreset),
-    level: mood(config.mood).id === 'organic' ? config[s.kind === 'synth' ? 'synthLevel' : 'instrumentLevel'] : s.level }));
+function orchestraPatch(slot: MoodSlot, harmony: Configuration['harmony'], presetId = slot.defaultPreset): Patch {
+  const patch = copyPatch(presetId);
+  patch.scale = harmony.scale;
+  patch.notes = [...harmony.notes];
+  patch.tuning = harmony.tuning;
+  if (slot.octaves) patch.octaves = [...slot.octaves];
+  // Catalogue patches provide timbre only. Every channel starts from a restrained,
+  // mood-safe bus so CONFIG and volume changes cannot briefly restore extreme legacy effects.
+  patch.delay = { on: false, wet: 0, rate: 78 };
+  patch.reverb = {
+    on: true,
+    wet: slot.role === 'pad' ? 24 : slot.role === 'foundation' ? 18 : 16,
+    amount: slot.kind === 'synth' ? 72 : 66,
+  };
+  patch.chorus = slot.kind === 'synth'
+    ? { on: true, depth: slot.role === 'pad' ? 8 : 4, rate: 18 }
+    : { on: false, depth: 0, rate: 18 };
+  patch.envelope = { on: true, attack: slot.kind === 'synth' ? 68 : 2,
+    release: slot.kind === 'synth' ? 82 : 62 };
+  return patch;
+}
+export const soundSlots = (config: Configuration): SoundSlot[] => {
+  const definition = mood(config.mood);
+  const harmony = config.harmony ?? {
+    scale: definition.score.harmony.scale,
+    notes: [...definition.score.harmony.notes],
+    tuning: definition.score.harmony.tuning,
+  };
+  return definition.slots.map((slot) => {
+    const saved = config.slots?.find((candidate) => candidate.id === slot.id);
+    const chosen = !slot.hidden && slot.kind === 'instrument' && saved &&
+      allowedPresets(slot).some((candidate) => candidate.id === saved.patch.preset)
+      ? saved.patch.preset : slot.defaultPreset;
+    return {
+      id: slot.id,
+      kind: slot.kind,
+      patch: orchestraPatch(slot, harmony, chosen),
+      level: limit(slot.hidden ? slot.level : saved?.level ?? slot.level, 0, 1),
+    };
+  });
+};
 export function audioChannels(config: Configuration) {
   const slots = soundSlots(config);
   const source = slots.find((s) => s.kind === 'instrument') ?? slots[0];

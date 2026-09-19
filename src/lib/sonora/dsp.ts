@@ -30,20 +30,33 @@ const smooth = (x: number) => {
   const v = clamp(x);
   return v * v * (3 - 2 * v);
 };
+const copyBusPatch = (patch: Patch): Patch => ({
+  ...patch,
+  delay: { ...patch.delay },
+  reverb: { ...patch.reverb },
+  chorus: { ...patch.chorus },
+  envelope: { ...patch.envelope },
+  velocity: { ...patch.velocity },
+  notes: [...patch.notes],
+  octaves: [...patch.octaves],
+});
 class Effects {
   private dl: Float32Array;
   private dr: Float32Array;
   private at = 0;
   private chorusPhase = 0;
   private lines: Float32Array[];
-  private indices = new Int32Array(4);
-  private damp = new Float64Array(4);
+  private indices = new Int32Array(8);
+  private damp = new Float64Array(8);
+  private reverbLowL = 0;
+  private reverbLowR = 0;
   private rate: number;
   constructor(rate: number) {
     this.rate = rate;
     this.dl = new Float32Array(Math.ceil(rate * 1.3));
     this.dr = new Float32Array(this.dl.length);
-    this.lines = [0.097, 0.131, 0.173, 0.211].map(
+    // Eight mutually prime-ish paths build density without audible flutter.
+    this.lines = [0.071, 0.089, 0.113, 0.131, 0.149, 0.173, 0.197, 0.227].map(
       (x) => new Float32Array(Math.ceil(rate * x)),
     );
   }
@@ -80,26 +93,28 @@ class Effects {
       l = l * (1 - wet) + echoL * wet;
       r = r * (1 - wet) + echoR * wet;
     }
+    this.reverbLowL += (l - this.reverbLowL) * 0.018;
+    this.reverbLowR += (r - this.reverbLowR) * 0.018;
+    const reverbInL = l - this.reverbLowL * 0.82;
+    const reverbInR = r - this.reverbLowR * 0.82;
+    const damping = 0.14 + (1 - rv.amount / 100) * 0.12;
     let sum = 0;
-    for (let j = 0; j < 4; j++) {
-      this.damp[j] += (this.lines[j][this.indices[j]] - this.damp[j]) * 0.3;
+    for (let j = 0; j < 8; j++) {
+      this.damp[j] += (this.lines[j][this.indices[j]] - this.damp[j]) * damping;
       sum += this.damp[j];
     }
-    const feedback = 0.48 + (rv.amount / 100) * 0.4;
-    for (let j = 0; j < 4; j++) {
+    const feedback = 0.54 + (rv.amount / 100) * 0.35;
+    for (let j = 0; j < 8; j++) {
       this.lines[j][this.indices[j]] =
-        (j % 2 ? r : l) * 0.3 + (sum * 0.5 - this.damp[j]) * feedback;
+        (j % 2 ? reverbInR : reverbInL) * 0.22 + (sum * 0.25 - this.damp[j]) * feedback;
       this.indices[j] = (this.indices[j] + 1) % this.lines[j].length;
     }
-    // Early reflections retain note articulation even in fully wet presets.
-    const earlyL = this.tap(this.dl, 0.023),
-      earlyR = this.tap(this.dr, 0.031),
-      wetL =
-        earlyL * 0.78 +
-        (this.damp[0] + this.damp[1] - this.damp[2] - this.damp[3]) * 0.22,
-      wetR =
-        earlyR * 0.78 +
-        (this.damp[0] - this.damp[1] + this.damp[2] - this.damp[3]) * 0.22;
+    // Keep reflections subordinate to the dense tail: no short slap masquerading as reverb.
+    const earlyL = this.tap(this.dl, 0.013), earlyR = this.tap(this.dr, 0.019),
+      wetL = earlyL * 0.08 + (this.damp[0] + this.damp[1] - this.damp[2] +
+        this.damp[3] - this.damp[4] + this.damp[5] - this.damp[6] + this.damp[7]) * 0.18,
+      wetR = earlyR * 0.08 + (this.damp[0] - this.damp[1] + this.damp[2] +
+        this.damp[3] - this.damp[4] - this.damp[5] + this.damp[6] - this.damp[7]) * 0.18;
     this.at = (this.at + 1) % this.dl.length;
     if (rv.on) {
       const wet = clamp((rv.wet + space) / 100);
@@ -125,6 +140,7 @@ type Voice = {
   detuneRatio: number;
   design: SynthVoice;
   frequency: number;
+  pitchCurve: [number, number, number];
   filterState: number;
   phase3: number;
   attenuation: number;
@@ -172,65 +188,74 @@ export function prepareVoice(rate: number, bank: Bank, n: Note): Voice | undefin
     0.96 / Math.sqrt(harmonics.reduce((sum, x) => sum + x * x, 0)),
   );
   for (let i = 0; i < harmonics.length; i++) harmonics[i] *= normalization;
+  const position = sample
+    ? Math.min(Math.max(0, sample.data.length - 2), Math.max(0, n.sampleOffset ?? 0) * sample.rate)
+    : 0;
+  const position2 = sample2
+    ? Math.min(Math.max(0, sample2.data.length - 2), Math.max(0, n.sampleOffset ?? 0) * sample2.rate)
+    : 0;
+  const increment = sample
+    ? desc.percussion ? sample.rate / rate : ((sample.rate / rate) *
+        2 ** ((n.midi - sample.midi) / 12) * n.patch.tuning) / 440
+    : 0;
+  const increment2 = sample2
+    ? ((sample2.rate / rate) * 2 ** ((n.midi - sample2.midi) / 12) * n.patch.tuning) / 440
+    : 0;
+  const attack = isGreeting
+    ? 0.003
+    : n.lane === 'synth' && n.fade
+      ? n.patch.envelope.on
+        ? 0.35 + n.fade * (0.35 + (n.patch.envelope.attack / 100) * 0.65)
+        : 0.35
+    : n.patch.envelope.on
+      ? 0.004 + (n.lane === 'synth' ? 1.3 : 0.45) *
+        (n.patch.envelope.attack / 100) ** 2
+      : n.lane === 'synth' ? 0.08 : 0.004;
+  const release = isGreeting
+    ? 0.4
+    : n.lane === 'synth' && n.fade
+      ? n.patch.envelope.on
+        ? 0.6 + n.fade * (0.5 + (n.patch.envelope.release / 100) * 0.8)
+        : 0.8
+    : n.patch.envelope.on
+      ? 0.06 + 3.5 * (n.patch.envelope.release / 100) ** 2
+      : 0.35;
+  const playable = sample && increment > 0
+    ? (sample.data.length - position - 2) / (increment * rate) : Infinity;
+  // Start the release while a pitched sample still has audio; otherwise flute,
+  // harp and other finite files can disappear before their envelope reaches zero.
+  const gate = sample && !desc.percussion
+    ? Math.min(n.duration, Math.max(0.08, playable - release * 1.04)) : n.duration;
   return {
     note: n,
     channel: -1,
     sample,
     sample2,
-    position: 0,
-    position2: 0,
-    increment: sample
-      ? desc.percussion ? sample.rate / rate : ((sample.rate / rate) *
-          2 ** ((n.midi - sample.midi) / 12) *
-          n.patch.tuning) /
-        440
-      : 0,
-    increment2: sample2
-      ? ((sample2.rate / rate) *
-          2 ** ((n.midi - sample2.midi) / 12) *
-          n.patch.tuning) /
-        440
-      : 0,
+    position,
+    position2,
+    increment,
+    increment2,
     phase: 0,
     phase2: 0.07,
     detuneRatio: 2 ** (design.detune / 1200),
     design,
     frequency,
+    pitchCurve: n.pitchCurve ?? [0, 0, 0],
     filterState: 0,
     phase3: 0.37,
     attenuation: Math.min(1, Math.sqrt(880 / frequency)),
     harmonics,
     ratios: desc.model === 'bowl' ? [1, 2.71, 4.05, 5.43] : [1, 2, 3, 4],
-    attack: isGreeting
-      ? 0.003
-      : n.lane === 'synth' && n.fade
-        ? n.patch.envelope.on
-          ? 0.35 + n.fade * (0.35 + (n.patch.envelope.attack / 100) * 0.65)
-          : 0.35
-      : n.patch.envelope.on
-        ? 0.004 +
-          (n.lane === 'synth' ? 1.3 : 0.45) *
-            (n.patch.envelope.attack / 100) ** 2
-        : n.lane === 'synth'
-          ? 0.08
-          : 0.004,
-    release: isGreeting
-      ? 0.4
-      : n.lane === 'synth' && n.fade
-        ? n.patch.envelope.on
-          ? 0.6 + n.fade * (0.5 + (n.patch.envelope.release / 100) * 0.8)
-          : 0.8
-      : n.patch.envelope.on
-        ? 0.06 + 3.5 * (n.patch.envelope.release / 100) ** 2
-        : 0.35,
-    stop: n.time + n.duration,
+    attack,
+    release,
+    stop: n.time + gate,
     forced: Infinity,
     panL: Math.sqrt((1 - clamp(n.pan, -1, 1)) / 2),
     panR: Math.sqrt((1 + clamp(n.pan, -1, 1)) / 2),
     flavor,
     model: desc.model,
     gain:
-      (isGreeting ? 0.2 : n.lane === 'synth' ? 0.48 : 0.28) *
+      (isGreeting ? 0.24 : n.lane === 'synth' ? 0.56 : 0.46) *
       (n.velocity / 100) ** 1.15,
   };
 }
@@ -256,6 +281,11 @@ export class AudioCore {
   private expressionBands = new Float64Array(9).fill(0.33);
   private buses: Record<string, Effects> = {};
   private channels: ReturnType<typeof audioChannels> = [];
+  private levels: number[] = [];
+  private targetLevels: number[] = [];
+  private patches: Patch[] = [];
+  private targetPatches: Patch[] = [];
+  private mixSlews = new Float64Array();
   private dcL = 0;
   private dcR = 0;
   private space = 0;
@@ -269,10 +299,27 @@ export class AudioCore {
   }
   configure(config: Configuration, bank = this.bank) {
     const channels = audioChannels(config);
-    if (channels.map((c) => c.id).join('|') !== this.channels.map((c) => c.id).join('|')) {
+    const reset = channels.map((c) => c.id).join('|') !== this.channels.map((c) => c.id).join('|');
+    if (reset) {
       this.voices = []; this.pending = []; this.cancelled.clear();
       this.buses = Object.fromEntries(channels.map((c) => [c.id, new Effects(this.rate)]));
       this.duck = this.synthDuck = 1; this.greetingAt = this.instrumentAt = -Infinity;
+      this.levels = channels.map((channel) => channel.level);
+      this.patches = channels.map((channel) => copyBusPatch(channel.patch));
+      this.targetLevels = channels.map((channel) => channel.level);
+      this.targetPatches = channels.map((channel) => copyBusPatch(channel.patch));
+      this.mixSlews = Float64Array.from(channels, () =>
+        1 - Math.exp(-1 / (0.12 * this.rate)));
+    } else {
+      channels.forEach((channel, index) => {
+        const previous = this.channels[index];
+        if (channel.level === previous.level &&
+          JSON.stringify([channel.patch.delay, channel.patch.reverb, channel.patch.chorus]) ===
+          JSON.stringify([previous.patch.delay, previous.patch.reverb, previous.patch.chorus])) return;
+        this.targetLevels[index] = channel.level;
+        this.targetPatches[index] = copyBusPatch(channel.patch);
+        this.mixSlews[index] = 1 - Math.exp(-1 / (0.12 * this.rate));
+      });
     }
     this.channels = channels;
     this.config = config;
@@ -321,6 +368,17 @@ export class AudioCore {
         } else if (e.type === 'expression') {
           this.targetExpression = e.expression;
           expressionSlew = 1 - Math.exp(-1 / (Math.max(0.05, e.expression.smoothing ?? 0.4) * this.rate));
+        } else if (e.type === 'mix') {
+          const channel = channels.findIndex((candidate) => candidate.id === e.slot);
+          if (channel >= 0) {
+            this.targetLevels[channel] = clamp(e.mix.level);
+            const target = this.targetPatches[channel];
+            target.delay = { ...e.mix.delay };
+            target.reverb = { ...e.mix.reverb };
+            target.chorus = { ...e.mix.chorus };
+            this.mixSlews[channel] = 1 - Math.exp(-1 /
+              (Math.max(0.05, e.mix.smoothing) * this.rate));
+          }
         } else {
           for (const v of this.voices)
             if (e.slot ? v.note.slot === e.slot : !e.lane || v.note.lane === e.lane) {
@@ -389,18 +447,23 @@ export class AudioCore {
                 ) *
                 (j ? 0.3 / (j + 1) : 1);
         } else {
-          v.phase += v.frequency / this.rate;
+          const progress = clamp(age / Math.max(0.001, v.note.duration));
+          const curveAt = progress < 0.5
+            ? smooth(progress * 2) * (v.pitchCurve[1] - v.pitchCurve[0]) + v.pitchCurve[0]
+            : smooth((progress - 0.5) * 2) * (v.pitchCurve[2] - v.pitchCurve[1]) + v.pitchCurve[1];
+          const frequency = v.frequency * 2 ** (curveAt / 12);
+          v.phase += frequency / this.rate;
           v.phase -= v.phase | 0;
           const livingDetune = 1 + Math.max(0.002, v.detuneRatio - 1) * (0.85 + energy * 0.3);
-          v.phase2 += (v.frequency * livingDetune) / this.rate;
+          v.phase2 += (frequency * livingDetune) / this.rate;
           v.phase2 -= v.phase2 | 0;
-          v.phase3 += v.frequency / (livingDetune * this.rate);
+          v.phase3 += frequency / (livingDetune * this.rate);
           v.phase3 -= v.phase3 | 0;
           const design = v.design;
           const breathe = sin(age * design.evolution + v.note.color);
           const decay = 0.35 + 0.65 / (1 + age * design.decay);
           for (let j = 0; j < v.harmonics.length; j++) {
-            if (v.frequency * (j + 1) >= this.rate * 0.42) continue;
+            if (frequency * (j + 1) >= this.rate * 0.42) continue;
             const band = this.expressionBands[(j + design.trace) % 9];
             let weight = j ? 0.6 + brightness * 0.4 + band * 0.55 : 0.65;
             if (design.family === 'glass') weight *= j ? decay : 0.8;
@@ -428,10 +491,10 @@ export class AudioCore {
           }
           value *=
             (0.78 + energy * 0.14 + breathe * 0.16) *
-            Math.min(1, Math.sqrt(880 / v.frequency));
+            Math.min(1, Math.sqrt(880 / frequency));
           const cutoff = Math.min(
             this.rate * 0.18,
-            (480 + v.frequency * 0.65 + brightness * brightness * 1800 + energy * 420) *
+            (480 + frequency * 0.65 + brightness * brightness * 1800 + energy * 420) *
               (0.82 + 0.18 * sin(age * (0.035 + design.evolution * 0.12) + v.note.color)),
           );
           v.filterState +=
@@ -467,7 +530,7 @@ export class AudioCore {
       this.duck +=
         (duckTarget - this.duck) *
         (duckTarget < this.duck ? duckAttack : duckRelease);
-      const synthDuckTarget = time - this.instrumentAt < 0.32 && audibleInstrument ? 0.62 : 1;
+      const synthDuckTarget = time - this.instrumentAt < 0.32 && audibleInstrument ? 0.82 : 1;
       this.synthDuck +=
         (synthDuckTarget - this.synthDuck) *
         (synthDuckTarget < this.synthDuck ? duckAttack : duckRelease);
@@ -475,9 +538,19 @@ export class AudioCore {
         right = 0;
       for (let j = 0; j < channels.length; j++) {
         const channel = channels[j], kind = channel.kind;
-        const [bl, br] = this.buses[channel.id].process(leftBus[j], rightBus[j], channel.patch,
+        const patch = this.patches[j], target = this.targetPatches[j], slew = this.mixSlews[j];
+        this.levels[j] += (this.targetLevels[j] - this.levels[j]) * slew;
+        patch.delay.on = target.delay.on; patch.reverb.on = target.reverb.on;
+        patch.chorus.on = target.chorus.on;
+        patch.delay.wet += (target.delay.wet - patch.delay.wet) * slew;
+        patch.delay.rate += (target.delay.rate - patch.delay.rate) * slew;
+        patch.reverb.wet += (target.reverb.wet - patch.reverb.wet) * slew;
+        patch.reverb.amount += (target.reverb.amount - patch.reverb.amount) * slew;
+        patch.chorus.depth += (target.chorus.depth - patch.chorus.depth) * slew;
+        patch.chorus.rate += (target.chorus.rate - patch.chorus.rate) * slew;
+        const [bl, br] = this.buses[channel.id].process(leftBus[j], rightBus[j], patch,
           kind === 'synth' ? energy : 0, kind !== 'greeting' ? this.space : 0);
-        const gain = channel.level * (kind !== 'greeting' ? this.duck : 1) *
+        const gain = this.levels[j] * (kind !== 'greeting' ? this.duck : 1) *
           (kind === 'synth' ? this.synthDuck : 1);
         left += bl * gain; right += br * gain;
         const peak = Math.max(Math.abs(bl * gain), Math.abs(br * gain));
@@ -487,9 +560,8 @@ export class AudioCore {
       }
       this.dcL += (left - this.dcL) * dc;
       this.dcR += (right - this.dcR) * dc;
-      // 2.5x the previous pre-limiter master gain; keep output bounded at 0.9.
-      l[i] = Math.tanh((left - this.dcL) * 4.125) * 0.9;
-      r[i] = Math.tanh((right - this.dcR) * 4.125) * 0.9;
+      l[i] = Math.tanh((left - this.dcL) * 5.5) * 0.94;
+      r[i] = Math.tanh((right - this.dcR) * 5.5) * 0.94;
       if (this.cursor % 128 === 0)
         this.voices = this.voices.filter(
           (v) => time < Math.min(v.stop + v.release, v.forced),

@@ -1,17 +1,22 @@
 import { Asset } from "expo-asset";
 import type { AudioContext } from "react-native-audio-api";
 import { preset, soundSlots, type Configuration } from "../sonora/presets";
+import { MOODS } from "../sonora/moods";
 import type { Bank, Sample } from "../sonora/dsp";
 import { sampleAssets } from "./sample-assets";
 
 export class SampleBank {
   private cache = new Map<string, Promise<Sample[]>>();
+  private loaded = new Map<string, Sample[]>();
 
-  async load(config: Configuration, context: AudioContext): Promise<Bank> {
-    const needed = new Set(soundSlots(config).flatMap((slot) => {
-      const program = preset(slot.patch.preset).program;
+  private programs(ids: Iterable<string>) {
+    return new Set([...ids].flatMap((id) => {
+      const program = preset(id).program;
       return program === "choir_organ" ? ["choir_aahs", "church_organ"] : program ? [program] : [];
     }));
+  }
+
+  private async loadPrograms(needed: Set<string>, context: AudioContext): Promise<Bank> {
     const bank: Bank = {};
     await Promise.all(
       [...needed].map(async (name) => {
@@ -43,9 +48,19 @@ export class SampleBank {
             }),
           );
         bank[name] = await this.cache.get(name)!;
+        this.loaded.set(name, bank[name]);
       }),
     );
-    for (const name of this.cache.keys()) if (!needed.has(name)) this.cache.delete(name);
-    return bank;
+    return Object.fromEntries(this.loaded);
+  }
+
+  load(config: Configuration, context: AudioContext) {
+    return this.loadPrograms(this.programs(soundSlots(config).map((slot) => slot.patch.preset)), context);
+  }
+
+  /** Decode default mood colours once while the user is listening to the first mood. */
+  preloadMoodDefaults(context: AudioContext) {
+    return this.loadPrograms(this.programs(MOODS.flatMap((definition) =>
+      definition.slots.map((slot) => slot.defaultPreset))), context);
   }
 }

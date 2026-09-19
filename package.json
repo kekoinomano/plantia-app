@@ -7,6 +7,7 @@
     "start": "expo start --dev-client",
     "android": "expo run:android --app-id com.plantia.app.dev",
     "apk-android": "npm run sonora:build && cd android && ./gradlew assembleRelease",
+    "apk-ios": "npm run sonora:build && npm run ios -- --device --configuration Release",
     "ios": "expo run:ios",
     "ios:open": "expo start --dev-client --ios",
     "web": "expo start --web",

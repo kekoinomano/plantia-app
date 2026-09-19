@@ -61,7 +61,7 @@ var Sonora = (() => {
   var signedLog = (x) => Math.sign(x) * Math.log2(1 + Math.abs(x));
   var BIN_MS = 250;
   var GAP_SECONDS = 6;
-  function describe(values, time, seq, cadence) {
+  function describe(values, time, seq, cadence, packetCadence, packetTempoChange = 0, packetRegime = 0, packetConfidence = 0) {
     const log = values.map(signedLog), center = median(log);
     const residual = log.map((x) => Math.tanh((x - center) * 2) / 2);
     const spectrum = Array.from(
@@ -91,19 +91,94 @@ var Sonora = (() => {
         { length: 10 },
         (_, j) => residual[Math.min(log.length - 1, Math.floor(j * log.length / 10))]
       ),
-      cadence
+      cadence,
+      packetPeaks: [{
+        time,
+        seq,
+        magnitude: Math.max(...values.map((value) => Math.abs(value)))
+      }],
+      packetCadence,
+      packetTempoChange,
+      packetRegime,
+      packetConfidence
     };
   }
   function createSignalAccumulator(onFrame) {
-    let bucket = [], bin = -1, invalid = 0, suspect = 0, lastTime = -Infinity, lastSeq = -1;
+    let bucket = [], bin = -1, invalid = 0, suspect = 0, lastTime = -Infinity, lastSeq = -1, cadenceWindow = [], cadenceCandidate = [], cadenceReference = 0, cadenceDirection = 0, cadenceStreak = 0, cadenceBlockStartedAt = -Infinity, cadenceBlockIntervals = 0, cadenceStartedAt = -Infinity, lastRegimeTime = -Infinity, packetRegime = 0, packetTempoChange = 0;
+    const cadenceMean = () => mean(cadenceWindow.slice(-3));
+    const acceptCadence = (interval, time) => {
+      if (!(interval > 0) || interval > GAP_SECONDS) {
+        if (interval > GAP_SECONDS) {
+          cadenceWindow = [];
+          cadenceCandidate = [];
+          cadenceReference = 0;
+          cadenceBlockStartedAt = -Infinity;
+          cadenceBlockIntervals = 0;
+          cadenceStartedAt = -Infinity;
+          cadenceDirection = cadenceStreak = 0;
+          packetTempoChange = 0;
+        }
+        return;
+      }
+      if (!Number.isFinite(cadenceBlockStartedAt)) {
+        cadenceBlockStartedAt = time - interval;
+        cadenceStartedAt = cadenceBlockStartedAt;
+      }
+      cadenceBlockIntervals++;
+      if (cadenceBlockIntervals < 10) return;
+      const blockCadence = (time - cadenceBlockStartedAt) / cadenceBlockIntervals;
+      cadenceBlockStartedAt = time;
+      cadenceBlockIntervals = 0;
+      cadenceWindow.push(blockCadence);
+      cadenceWindow = cadenceWindow.slice(-6);
+      if (time - cadenceStartedAt < 12) {
+        cadenceCandidate = [];
+        if (cadenceWindow.length >= 3) cadenceReference = cadenceMean();
+        return;
+      }
+      if (!cadenceReference && cadenceWindow.length >= 3)
+        cadenceReference = cadenceMean();
+      if (!cadenceReference) return;
+      const ratio = blockCadence / cadenceReference;
+      const direction = ratio > 1.65 ? 1 : ratio < 0.61 ? -1 : 0;
+      if (direction) {
+        cadenceStreak = direction === cadenceDirection ? cadenceStreak + 1 : 1;
+        cadenceDirection = direction;
+        cadenceCandidate = cadenceStreak === 1 ? [blockCadence] : [...cadenceCandidate, blockCadence].slice(-3);
+        if (cadenceStreak >= 3 && time - lastRegimeTime >= 18) {
+          const before = cadenceReference;
+          cadenceReference = mean(cadenceCandidate);
+          packetTempoChange = clamp(
+            Math.log2(before / cadenceReference) / 4,
+            -1,
+            1
+          );
+          packetRegime++;
+          lastRegimeTime = time;
+          cadenceWindow = [...cadenceCandidate];
+          cadenceCandidate = [];
+          cadenceDirection = cadenceStreak = 0;
+        }
+      } else {
+        cadenceCandidate = [];
+        cadenceDirection = cadenceStreak = 0;
+        cadenceReference += (blockCadence - cadenceReference) * 0.015;
+      }
+    };
     const flush = () => {
       if (!bucket.length) return;
       const first = bucket[0];
+      const latest = bucket.at(-1);
+      const center = median(bucket.map((f) => f.center));
       onFrame(__spreadProps(__spreadValues({}, first), {
-        time: bucket.at(-1).time,
-        seq: bucket.at(-1).seq,
+        time: latest.time,
+        seq: latest.seq,
         level: mean(bucket.map((f) => f.level)),
-        center: median(bucket.map((f) => f.center)),
+        center,
+        packetPeaks: bucket.flatMap((frame) => {
+          var _a;
+          return (_a = frame.packetPeaks) != null ? _a : [];
+        }),
         spread: mean(bucket.map((f) => f.spread)),
         roughness: mean(bucket.map((f) => f.roughness)),
         slope: mean(bucket.map((f) => f.slope)),
@@ -113,7 +188,11 @@ var Sonora = (() => {
         ),
         profile: first.profile.map(
           (_, j) => mean(bucket.map((f) => f.profile[j]))
-        )
+        ),
+        packetCadence: latest.packetCadence,
+        packetTempoChange: latest.packetTempoChange,
+        packetRegime: latest.packetRegime,
+        packetConfidence: latest.packetConfidence
       }));
       bucket = [];
     };
@@ -132,7 +211,17 @@ var Sonora = (() => {
         (v) => Math.abs(v - center) > Math.max(100, Math.abs(center) * 100)
       ).length;
       const cadence = Number.isFinite(lastTime) ? (p.elapsed_ms - lastTime) / 1e3 : 0;
-      bucket.push(describe(p.values, p.elapsed_ms / 1e3, p.seq, cadence));
+      acceptCadence(cadence, p.elapsed_ms / 1e3);
+      bucket.push(describe(
+        p.values,
+        p.elapsed_ms / 1e3,
+        p.seq,
+        cadence,
+        cadenceWindow.length ? cadenceMean() : void 0,
+        packetTempoChange,
+        packetRegime,
+        Math.min(1, cadenceWindow.length / 6)
+      ));
       lastTime = p.elapsed_ms;
       lastSeq = p.seq;
     };
@@ -159,33 +248,86 @@ var Sonora = (() => {
     {
       id: "organic",
       name: "Org\xE1nico",
-      rules: "organic",
-      description: "Una melod\xEDa viva sobre un ambiente suave.",
+      description: "Una melod\xEDa viva sobre un fondo suave.",
+      score: {
+        style: "organic",
+        harmony: { scale: "Maj Pentatonic", notes: [0, 2, 4, 7, 9], tuning: 432 },
+        progression: [0, 3, 4, 1]
+      },
       slots: [
-        { id: "atmosphere", label: "Ambiente", kind: "synth", defaultPreset: "healing", level: 0.55 },
-        { id: "melody", label: "Melod\xEDa", kind: "instrument", defaultPreset: "harp", level: 0.95 }
+        { id: "ground", label: "Fondo org\xE1nico", kind: "synth", defaultPreset: "meadow", level: 0.96, octaves: [2, 4], role: "foundation" },
+        { id: "melody", label: "Voz org\xE1nica", kind: "instrument", families: ["strings"], defaultPreset: "harp", level: 1, octaves: [3, 5], role: "lead" },
+        { id: "visitor", label: "Viento invitado", kind: "instrument", families: ["wind"], defaultPreset: "pan-flute", level: 0.78, octaves: [3, 4], role: "accent", hidden: true }
       ],
       modulation: { brightness: 0.3, energy: 0.25, space: 8, smoothing: 0.4 }
     },
     {
-      id: "mist",
-      name: "Bruma",
-      rules: "mist",
-      description: "Nubes arm\xF3nicas, destellos y silencios que siguen la forma de la se\xF1al.",
-      slots: [{ id: "cloud", label: "Nube sonora", kind: "synth", defaultPreset: "enlightenment", level: 0.8 }],
-      modulation: { brightness: 0.4, energy: 0.3, space: 18, smoothing: 1.2 }
+      id: "serene",
+      name: "Sereno",
+      description: "Dos fondos c\xE1lidos sostienen una conversaci\xF3n lenta de arpa y viento.",
+      score: {
+        style: "serene",
+        harmony: { scale: "Maj Pentatonic", notes: [0, 2, 4, 7, 9], tuning: 432 },
+        progression: [0, 3, 4, 1]
+      },
+      slots: [
+        { id: "ground", label: "Fondo grave", kind: "synth", defaultPreset: "meadow", level: 0.94, octaves: [2, 3], role: "foundation" },
+        { id: "air", label: "Fondo de aire", kind: "synth", defaultPreset: "peace", level: 0.88, octaves: [3, 4], role: "pad" },
+        { id: "lead", label: "Voz principal", kind: "instrument", families: ["strings"], defaultPreset: "harp", level: 1, octaves: [3, 5], role: "lead" },
+        { id: "answer", label: "Respuesta de viento", kind: "instrument", families: ["wind"], defaultPreset: "shakuhachi", level: 0.76, octaves: [3, 4], role: "counterline" }
+      ],
+      modulation: { brightness: 0.26, energy: 0.2, space: 12, smoothing: 1.1 }
     },
     {
-      id: "grove",
-      name: "Sotobosque",
-      rules: "grove",
-      description: "Polirritmos y frases de viento: la planta pregunta, responde y respira.",
+      id: "drift",
+      name: "Deriva",
+      description: "Una constelaci\xF3n de sintetizadores; la campana solo aparece para se\xF1alar cambios.",
+      score: {
+        style: "drift",
+        harmony: { scale: "Lydian", notes: [0, 2, 4, 6, 7, 9, 11], tuning: 440 },
+        progression: [0, 1, 4, 2]
+      },
       slots: [
-        { id: "ground", label: "Fondo", kind: "synth", defaultPreset: "meditation", level: 0.35 },
-        { id: "pulse", label: "Percusi\xF3n", kind: "instrument", families: ["percussion"], defaultPreset: "congas", level: 0.8 },
-        { id: "breath", label: "Viento", kind: "instrument", families: ["wind"], defaultPreset: "pan-flute", level: 0.8 }
+        { id: "horizon", label: "Horizonte", kind: "synth", defaultPreset: "space-time", level: 0.96, octaves: [2, 3], role: "foundation" },
+        { id: "cloud", label: "Nube", kind: "synth", defaultPreset: "mandala", level: 0.9, octaves: [3, 4], role: "pad" },
+        { id: "glint", label: "Destello", kind: "synth", defaultPreset: "crystal", level: 0.72, octaves: [4, 5], role: "accent" },
+        { id: "marker", label: "Se\xF1al", kind: "instrument", families: ["percussion"], defaultPreset: "tibetan-bell", level: 0.84, octaves: [3, 4], role: "accent" }
       ],
-      modulation: { brightness: 0.5, energy: 0.45, space: 22, smoothing: 0.5 }
+      modulation: { brightness: 0.42, energy: 0.26, space: 20, smoothing: 1.3 }
+    },
+    {
+      id: "prism",
+      name: "Prisma",
+      description: "Capas modales, pulsos cruzados y color est\xE9reo alrededor de un centro estable.",
+      score: {
+        style: "psychedelic",
+        harmony: { scale: "Doric", notes: [0, 2, 3, 5, 7, 9, 10], tuning: 432 },
+        progression: [0, 3, 1, 4, 2, 0]
+      },
+      slots: [
+        { id: "tide", label: "Marea", kind: "synth", defaultPreset: "velvet", level: 0.96, octaves: [2, 3], role: "foundation" },
+        { id: "spiral", label: "Espiral", kind: "synth", defaultPreset: "prism-dust", level: 0.88, octaves: [3, 4], role: "pad" },
+        { id: "aura", label: "Aura", kind: "synth", defaultPreset: "beauty", level: 0.76, octaves: [4, 5], role: "counterline" },
+        { id: "apparition", label: "Aparici\xF3n", kind: "instrument", families: ["strings"], defaultPreset: "sitar", level: 0.82, octaves: [3, 5], role: "accent" }
+      ],
+      modulation: { brightness: 0.58, energy: 0.46, space: 24, smoothing: 0.65 }
+    },
+    {
+      id: "ritual",
+      name: "Ritual",
+      description: "Pulso de tierra, respiraci\xF3n de viento y una armon\xEDa que crece por capas.",
+      score: {
+        style: "ritual",
+        harmony: { scale: "Min Pentatonic", notes: [0, 3, 5, 7, 10], tuning: 440 },
+        progression: [0, 3, 2, 0]
+      },
+      slots: [
+        { id: "earth", label: "Tierra", kind: "synth", defaultPreset: "meditation", level: 0.94, octaves: [2, 3], role: "foundation" },
+        { id: "pulse", label: "Pulso", kind: "instrument", families: ["percussion"], defaultPreset: "congas", level: 1, role: "pulse" },
+        { id: "breath", label: "Aliento", kind: "instrument", families: ["wind"], defaultPreset: "shakuhachi", level: 0.94, octaves: [3, 5], role: "lead" },
+        { id: "embers", label: "Brasas", kind: "instrument", families: ["percussion"], defaultPreset: "kalimba", level: 0.86, octaves: [3, 4], role: "counterline" }
+      ],
+      modulation: { brightness: 0.46, energy: 0.5, space: 14, smoothing: 0.55 }
     }
   ];
   var mood = (id) => {
@@ -238,7 +380,11 @@ var Sonora = (() => {
     ["Sun", "Doric", "3-6", "95/86", "100/99", "73/86", "100/21"],
     ["Lead", "Min Pentatonic", "3-5", "73/75", "100/99", "73/11", "50/73"],
     ["Infinity", "Maj Pentatonic", "3-6", "14/99", "52/86", "95/52", "100/26"],
-    ["Non Duality", "Ryukyu", "3-5", "90/34", "19/99", "73/63", "100/9"]
+    ["Non Duality", "Ryukyu", "3-5", "90/34", "19/99", "73/63", "100/9"],
+    ["Ballena", "Min Pentatonic", "2-4", "72/76", "86/88", "100/14", "100/32"],
+    ["Meadow", "Maj Pentatonic", "2-5", "-", "22/72", "4/14", "84/72"],
+    ["Velvet", "Doric", "2-5", "-", "24/74", "6/16", "86/76"],
+    ["Prism Dust", "Doric", "3-5", "-", "27/78", "10/20", "90/68"]
   ];
   var instruments = [
     ["Bongos", "0,1", "4-4", "-", "12/20", "-", "12/0", "bongos"],
@@ -414,91 +560,57 @@ var Sonora = (() => {
   };
   var copyPatch = (id) => JSON.parse(JSON.stringify(preset(id).patch));
   function defaultConfiguration() {
-    return {
-      version: 1,
-      mood: "organic",
+    const definition = mood("organic");
+    const harmony = {
+      scale: definition.score.harmony.scale,
+      notes: [...definition.score.harmony.notes],
+      tuning: definition.score.harmony.tuning
+    };
+    const config = {
+      version: 2,
+      mood: definition.id,
       plantResponse: 1,
-      synth: copyPatch("healing"),
-      instrument: copyPatch("harp"),
-      synthMotion: { transition: 4.5, stability: 78 },
+      harmony,
+      slots: [],
       speed: 1,
-      synthLevel: 0.55,
-      instrumentLevel: 0.95,
       greetingLevel: 1
     };
+    config.slots = soundSlots(config);
+    return config;
   }
   var limit = (n, a, b) => Number.isFinite(n) ? Math.max(a, Math.min(b, n)) : a;
   function sanitizeConfiguration(input) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
-    const c = JSON.parse(JSON.stringify(input));
-    c.mood = mood(c.mood).id;
-    c.plantResponse = limit((_a = c.plantResponse) != null ? _a : 1, 0, 1);
-    const definition = mood(c.mood);
+    var _a, _b, _c, _d;
+    const source = JSON.parse(JSON.stringify(input));
+    const definition = mood(source.mood);
     if (definition.slots.length > 8) throw Error("Un mood admite hasta ocho sonidos");
-    c.slots = definition.slots.map((slot) => {
-      var _a2, _b2, _c2, _d2, _e2, _f2;
-      const saved = (_a2 = c.slots) == null ? void 0 : _a2.find((s) => s.id === slot.id);
-      const legacy = !c.slots && definition.id === "organic" ? c[slot.kind] : void 0;
-      const patch = (_c2 = (_b2 = saved == null ? void 0 : saved.patch) != null ? _b2 : legacy) != null ? _c2 : copyPatch(slot.defaultPreset);
-      if (!allowedPresets(slot).some((p) => p.id === patch.preset))
-        throw Error(`Sonido no compatible con ${slot.label}`);
-      return __spreadProps(__spreadValues({
+    const requested = (_a = source.harmony) != null ? _a : definition.score.harmony;
+    const notes = [...new Set(requested.notes.filter((note) => Number.isInteger(note) && note >= 0 && note < 12))].sort((a, b) => a - b);
+    const harmony = {
+      scale: notes.length ? requested.scale : definition.score.harmony.scale,
+      notes: notes.length ? notes : [...definition.score.harmony.notes],
+      tuning: limit(requested.tuning, 392, 494)
+    };
+    const slots = definition.slots.map((slot) => {
+      var _a2, _b2;
+      const saved = (_a2 = source.slots) == null ? void 0 : _a2.find((candidate) => candidate.id === slot.id);
+      const chosen = !slot.hidden && slot.kind === "instrument" && saved && allowedPresets(slot).some((candidate) => candidate.id === saved.patch.preset) ? saved.patch.preset : slot.defaultPreset;
+      return {
         id: slot.id,
         kind: slot.kind,
-        patch
-      }, slot.kind === "synth" ? { motion: (_e2 = (_d2 = saved == null ? void 0 : saved.motion) != null ? _d2 : c.synthMotion) != null ? _e2 : { transition: 4.5, stability: 78 } } : {}), {
-        level: limit((_f2 = saved == null ? void 0 : saved.level) != null ? _f2 : legacy ? c[slot.kind === "synth" ? "synthLevel" : "instrumentLevel"] : slot.level, 0, 1)
-      });
+        patch: orchestraPatch(slot, harmony, chosen),
+        level: limit(slot.hidden ? slot.level : (_b2 = saved == null ? void 0 : saved.level) != null ? _b2 : slot.level, 0, 1)
+      };
     });
-    const synthMotion = c.synthMotion;
-    c.synthMotion = {
-      transition: limit((_c = (_b = synthMotion == null ? void 0 : synthMotion.transition) != null ? _b : synthMotion == null ? void 0 : synthMotion.glide) != null ? _c : 4.5, 1, 8),
-      stability: limit((_d = synthMotion == null ? void 0 : synthMotion.stability) != null ? _d : 78, 0, 100)
+    return {
+      version: 2,
+      mood: definition.id,
+      plantResponse: limit((_b = source.plantResponse) != null ? _b : 1, 0, 1),
+      harmony,
+      slots,
+      speed: limit((_c = source.speed) != null ? _c : 1, 0.25, 2),
+      greetingLevel: limit((_d = source.greetingLevel) != null ? _d : 1, 0, 1)
     };
-    for (const slot of c.slots) {
-      const lane = slot.kind, p = slot.patch;
-      if (lane === "synth") slot.motion = {
-        transition: limit((_f = (_e = slot.motion) == null ? void 0 : _e.transition) != null ? _f : 4.5, 1, 8),
-        stability: limit((_h = (_g = slot.motion) == null ? void 0 : _g.stability) != null ? _h : 78, 0, 100)
-      };
-      if (!PRESETS.some((x) => x.id === p.preset && x.kind === lane))
-        throw Error("Preset no v\xE1lido");
-      p.notes = [
-        ...new Set(
-          p.notes.filter((n) => Number.isInteger(n) && n >= 0 && n < 12)
-        )
-      ].sort((a, b) => a - b);
-      if (!p.notes.length) throw Error("Selecciona al menos una nota");
-      p.octaves = [
-        Math.round(limit(p.octaves[0], 1, 6)),
-        Math.round(limit(p.octaves[1], 1, 6))
-      ].sort((a, b) => a - b);
-      p.tuning = limit(p.tuning, 392, 494);
-      for (const effect of [p.delay, p.reverb, p.chorus, p.envelope])
-        for (const key of Object.keys(effect))
-          if (key !== "on")
-            effect[key] = limit(
-              effect[key],
-              0,
-              100
-            );
-      p.velocity = {
-        range: limit(p.velocity.range, 0, 127),
-        center: limit(p.velocity.center, 0, 127)
-      };
-    }
-    c.speed = limit(c.speed, 0.25, 2);
-    c.synthLevel = limit(c.synthLevel, 0, 1);
-    c.instrumentLevel = limit(c.instrumentLevel, 0, 1);
-    c.greetingLevel = limit(c.greetingLevel, 0, 1);
-    for (const kind of ["synth", "instrument"]) {
-      const slot = c.slots.find((s) => s.kind === kind);
-      c[kind] = (_i = slot == null ? void 0 : slot.patch) != null ? _i : copyPatch(kind === "synth" ? "healing" : "harp");
-      c[kind === "synth" ? "synthLevel" : "instrumentLevel"] = (_j = slot == null ? void 0 : slot.level) != null ? _j : 0;
-      if (kind === "synth" && (slot == null ? void 0 : slot.motion)) c.synthMotion = slot.motion;
-    }
-    c.version = 1;
-    return c;
   }
   function notePool(p) {
     const hits = preset(p.preset).percussion;
@@ -510,22 +622,52 @@ var Sonora = (() => {
   }
   function greetingPatch(instrument) {
     return __spreadProps(__spreadValues({}, instrument), {
-      delay: { on: true, wet: 12, rate: 92 },
-      reverb: { on: true, wet: 18, amount: 20 },
-      chorus: { on: true, depth: 12, rate: 18 },
-      envelope: { on: true, attack: 0, release: 10 }
+      delay: { on: false, wet: 0, rate: 82 },
+      reverb: { on: true, wet: 21, amount: 68 },
+      chorus: { on: false, depth: 0, rate: 18 },
+      envelope: { on: true, attack: 0, release: 48 }
     });
   }
   var allowedPresets = (slot) => PRESETS.filter((p) => p.kind === slot.kind && (!slot.families || slot.families.includes(p.family)));
+  function orchestraPatch(slot, harmony, presetId = slot.defaultPreset) {
+    const patch = copyPatch(presetId);
+    patch.scale = harmony.scale;
+    patch.notes = [...harmony.notes];
+    patch.tuning = harmony.tuning;
+    if (slot.octaves) patch.octaves = [...slot.octaves];
+    patch.delay = { on: false, wet: 0, rate: 78 };
+    patch.reverb = {
+      on: true,
+      wet: slot.role === "pad" ? 24 : slot.role === "foundation" ? 18 : 16,
+      amount: slot.kind === "synth" ? 72 : 66
+    };
+    patch.chorus = slot.kind === "synth" ? { on: true, depth: slot.role === "pad" ? 8 : 4, rate: 18 } : { on: false, depth: 0, rate: 18 };
+    patch.envelope = {
+      on: true,
+      attack: slot.kind === "synth" ? 68 : 2,
+      release: slot.kind === "synth" ? 82 : 62
+    };
+    return patch;
+  }
   var soundSlots = (config) => {
     var _a;
-    return (_a = config.slots) != null ? _a : mood(config.mood).slots.map((s) => __spreadProps(__spreadValues({
-      id: s.id,
-      kind: s.kind
-    }, s.kind === "synth" ? { motion: config.synthMotion } : {}), {
-      patch: mood(config.mood).id === "organic" ? config[s.kind] : copyPatch(s.defaultPreset),
-      level: mood(config.mood).id === "organic" ? config[s.kind === "synth" ? "synthLevel" : "instrumentLevel"] : s.level
-    }));
+    const definition = mood(config.mood);
+    const harmony = (_a = config.harmony) != null ? _a : {
+      scale: definition.score.harmony.scale,
+      notes: [...definition.score.harmony.notes],
+      tuning: definition.score.harmony.tuning
+    };
+    return definition.slots.map((slot) => {
+      var _a2, _b;
+      const saved = (_a2 = config.slots) == null ? void 0 : _a2.find((candidate) => candidate.id === slot.id);
+      const chosen = !slot.hidden && slot.kind === "instrument" && saved && allowedPresets(slot).some((candidate) => candidate.id === saved.patch.preset) ? saved.patch.preset : slot.defaultPreset;
+      return {
+        id: slot.id,
+        kind: slot.kind,
+        patch: orchestraPatch(slot, harmony, chosen),
+        level: limit(slot.hidden ? slot.level : (_b = saved == null ? void 0 : saved.level) != null ? _b : slot.level, 0, 1)
+      };
+    });
   };
   function audioChannels(config) {
     var _a;
@@ -538,69 +680,57 @@ var Sonora = (() => {
   }
 
   // src/lib/sonora/gesture.ts
+  var WINDOW_SECONDS = 8;
+  var WINDOW_PACKETS = 64;
+  var MIN_REFERENCE_PACKETS = 5;
+  var WARMUP_SECONDS = 0.75;
+  var SCALE_JUMP = 1.75;
+  var COOLDOWN_SECONDS = 4;
   var GAP_SECONDS2 = 1.5;
   function createGestureDetector() {
-    let previous = null, began = 0, lastGreeting = -Infinity;
     let history = [];
-    let candidate = null;
-    let active = null;
+    let began = -Infinity;
+    let lastPacketTime = -Infinity;
+    let lastGreeting = -Infinity;
     return {
       get engaged() {
-        return candidate !== null || active !== null;
+        return false;
       },
       push(frame) {
-        const gap = previous !== null && frame.time - previous.time > GAP_SECONDS2;
-        if (!previous || gap) {
-          previous = frame;
-          began = frame.time;
-          history = [];
-          candidate = null;
-          active = null;
-        }
-        const step = Math.abs(frame.center - previous.center);
-        previous = frame;
-        history = history.filter((p) => frame.time - p.time <= 6);
-        if (active) {
-          const returned = Math.abs(frame.center - active.baseline) < Math.max(0.06, active.contrast * 0.18);
-          active.settled = returned ? active.settled + 1 : 0;
-          if (active.settled >= 2 || frame.time - active.time > 8) {
-            active = null;
-            candidate = null;
+        var _a;
+        const peaks = ((_a = frame.packetPeaks) == null ? void 0 : _a.length) ? frame.packetPeaks : [{ time: frame.time, seq: frame.seq, magnitude: Math.abs(frame.level) }];
+        let greeting = null;
+        for (const peak of peaks) {
+          if (peak.time - lastPacketTime > GAP_SECONDS2) {
             history = [];
+            began = peak.time;
           }
-          return null;
-        }
-        const baseline = history.length ? median(history.map((p) => p.center)) : frame.center;
-        const noise = median(history.map((p) => p.step));
-        const threshold = Math.max(0.13, noise * 9);
-        const deviation = Math.abs(frame.center - baseline);
-        if (candidate) {
-          const contrast = Math.abs(candidate.center - candidate.baseline);
-          const sameDirection = Math.sign(frame.center - candidate.baseline) === Math.sign(candidate.center - candidate.baseline);
-          if (frame.time - candidate.time <= GAP_SECONDS2 && sameDirection && Math.abs(frame.center - candidate.baseline) > contrast * 0.3) {
-            active = {
-              baseline: candidate.baseline,
-              contrast,
-              time: frame.time,
-              settled: 0
+          lastPacketTime = peak.time;
+          history = history.filter((previous) => peak.time - previous.time <= WINDOW_SECONDS).slice(-WINDOW_PACKETS);
+          const recentMaximum = history.length ? Math.max(...history.map((previous) => previous.magnitude)) : 0;
+          const ready = history.length >= MIN_REFERENCE_PACKETS && peak.time - began >= WARMUP_SECONDS;
+          const threshold = Math.max(1, recentMaximum) * SCALE_JUMP;
+          if (!greeting && ready && peak.time - lastGreeting >= COOLDOWN_SECONDS && peak.magnitude > threshold) {
+            greeting = {
+              contrast: peak.magnitude / Math.max(1, recentMaximum),
+              source: peak.seq,
+              time: peak.time
             };
-            candidate = null;
-            lastGreeting = frame.time;
-            return { contrast, source: frame.seq, time: frame.time };
+            lastGreeting = peak.time;
           }
-          candidate = null;
+          history.push(peak);
         }
-        if (frame.time - began >= 0.75 && frame.time - lastGreeting >= 3 && step > threshold && deviation > threshold) {
-          candidate = { baseline, center: frame.center, time: frame.time };
-          return null;
-        }
-        history.push({ time: frame.time, center: frame.center, step });
-        return null;
+        return greeting;
       }
     };
   }
 
   // src/lib/sonora/intent.ts
+  var quantile = (values, position) => {
+    if (!values.length) return 0;
+    const sorted = [...values].sort((a, b) => a - b);
+    return sorted[Math.round((sorted.length - 1) * position)];
+  };
   var PlantInterpreter = class {
     constructor() {
       __publicField(this, "previous", null);
@@ -609,20 +739,24 @@ var Sonora = (() => {
       __publicField(this, "irregularity", 0);
       __publicField(this, "character", { level: 0.5, pace: 0.5, variation: 0, texture: 0 });
       __publicField(this, "gesture", createGestureDetector());
+      // About 24 seconds at the accumulator's maximum four frames per second.
+      __publicField(this, "history", []);
     }
     push(f) {
-      var _a, _b;
+      var _a, _b, _c, _d, _e, _f, _g, _h;
       const first = !this.previous;
       const delta = first ? 0 : f.center - this.previous.center;
       const dt = first ? 0.25 : Math.max(1e-3, f.time - this.previous.time);
+      const packetCadence = (_a = f.packetCadence) != null ? _a : f.cadence;
+      const packetPace = 1 / (1 + Math.max(1e-3, packetCadence) / 0.12);
       const measured = {
         level: clamp((f.center + 2) / 24),
-        pace: 1 / (1 + Math.max(1e-3, f.cadence) / 0.12),
+        pace: packetPace,
         variation: Math.abs(delta) / (Math.abs(delta) + dt * 0.12),
         texture: f.spread / (f.spread + 0.08)
       };
       const follow = first ? 1 : 1 - Math.exp(-dt / 4);
-      const cadence = clamp(Math.log1p(Math.max(0, f.cadence) * 20) / Math.log(121));
+      const cadence = clamp(Math.log1p(Math.max(0, packetCadence) * 20) / Math.log(121));
       const jitter = first ? 0 : Math.abs(f.cadence - this.previous.cadence) / Math.max(0.05, f.cadence + this.previous.cadence);
       this.cadence += (cadence - this.cadence) * (first ? 1 : follow);
       this.irregularity += (jitter - this.irregularity) * follow;
@@ -638,8 +772,35 @@ var Sonora = (() => {
       }, 0) / Math.log(9);
       const profileEnergy = f.profile.reduce((sum, x) => sum + Math.abs(x), 0);
       const asymmetry = profileEnergy > 1e-8 ? f.profile.reduce((sum, x, i) => sum + Math.abs(x) * (i / Math.max(1, f.profile.length - 1) * 2 - 1), 0) / profileEnergy : 0;
-      const previousBandSum = Math.max(1e-4, (_b = (_a = this.previous) == null ? void 0 : _a.spectrum.reduce((a, b) => a + b, 0)) != null ? _b : 0);
+      const previousBandSum = Math.max(1e-4, (_c = (_b = this.previous) == null ? void 0 : _b.spectrum.reduce((a, b) => a + b, 0)) != null ? _c : 0);
       const novelty = first ? 0 : clamp(Math.abs(delta) / (profileScale + Math.abs(delta)) * 0.55 + f.spectrum.reduce((sum, x, i) => sum + Math.abs(x / bandSum - this.previous.spectrum[i] / previousBandSum), 0) * 0.225);
+      const profileChange = first ? 0 : meanDistance(f.profile, this.previous.profile);
+      const previousDirection = (_e = (_d = this.history.at(-1)) == null ? void 0 : _d.signedChange) != null ? _e : 0;
+      this.history.push({
+        time: f.time,
+        center: f.center,
+        profile: [...f.profile],
+        change: Math.abs(delta) / dt,
+        signedChange: delta / dt,
+        profileChange
+      });
+      this.history = this.history.filter((point) => f.time - point.time <= 24).slice(-96);
+      const centers = this.history.map((point) => point.center);
+      const middle = quantile(centers, 0.5);
+      const scale = Math.max(0.02, quantile(centers.map((x) => Math.abs(x - middle)), 0.5) * 1.4826);
+      const half = Math.max(1, Math.floor(centers.length / 2));
+      const older = quantile(centers.slice(0, half), 0.5);
+      const newer = quantile(centers.slice(-half), 0.5);
+      const changes = this.history.slice(1).map((point) => point.change);
+      const recentChanges = this.history.filter((point) => f.time - point.time <= 3).map((point) => point.change);
+      const longChange = quantile(changes, 0.5);
+      const shortChange = quantile(recentChanges, 0.5);
+      const candidates = this.history.filter((point) => f.time - point.time >= 2);
+      const recurrence = candidates.length ? Math.max(...candidates.map((point) => 1 - meanDistance(f.profile, point.profile))) : 0;
+      const robustRange = quantile(centers, 0.9) - quantile(centers, 0.1);
+      const typicalProfileChange = quantile(this.history.slice(1).map((point) => point.profileChange), 0.5);
+      const microChange = first ? 0 : 1 - Math.exp(-Math.abs(delta) / (scale * 0.45) - profileChange / Math.max(3e-3, typicalProfileChange * 1.5));
+      const turn = first || !previousDirection || !delta || Math.sign(previousDirection) === Math.sign(delta) ? 0 : clamp(Math.abs(delta) / (scale + Math.abs(delta)));
       this.previous = f;
       return {
         frame: f,
@@ -652,16 +813,39 @@ var Sonora = (() => {
         contour: Math.tanh((f.center - this.baseline) * 60 + f.slope * 35),
         position: clamp(0.1 + this.character.level * 0.65 + (this.character.pace - 0.5) * 0.24 + (shape - 0.5) * 0.22, 0.12, 0.88),
         greeting: Boolean(this.gesture.push(f)),
+        packet: {
+          cadence: packetCadence,
+          pace: packetPace,
+          change: (_f = f.packetTempoChange) != null ? _f : 0,
+          regime: (_g = f.packetRegime) != null ? _g : 0,
+          confidence: (_h = f.packetConfidence) != null ? _h : 0
+        },
         fingerprint: {
           cadence: this.cadence,
           irregularity: this.irregularity,
           entropy: clamp(entropy),
           asymmetry,
           novelty
+        },
+        history: {
+          trend: Math.tanh((newer - older) / (scale * 2.5)),
+          volatility: clamp(longChange / (longChange + 0.18)),
+          recurrence: clamp(recurrence),
+          burst: clamp((shortChange / Math.max(1e-3, longChange) - 0.8) / 2.2),
+          range: clamp(robustRange / (robustRange + 0.18)),
+          deviation: Math.tanh((f.center - middle) / (scale * 1.8)),
+          microChange: clamp(microChange),
+          turn
         }
       };
     }
   };
+  function meanDistance(a, b) {
+    return a.reduce((sum, value, i) => {
+      var _a;
+      return sum + Math.abs(value - ((_a = b[i]) != null ? _a : 0)) / Math.max(1, a.length);
+    }, 0);
+  }
 
   // src/lib/sonora/modulation.ts
   function plantExpression(intent, config) {
@@ -669,21 +853,1034 @@ var Sonora = (() => {
     const { character: c, bands, frame, profileScale } = intent;
     const ranges = mood(config.mood).modulation;
     const amount = (_a = config.plantResponse) != null ? _a : 1;
-    const ensemble = mood(config.mood).rules !== "organic";
-    const brightness = ensemble ? c.level * 0.25 + intent.shape * 0.35 + intent.fingerprint.entropy * 0.4 : c.texture * 0.35 + c.level * 0.2 + c.variation * 0.25 + bands.slice(4).reduce((sum, x) => sum + x, 0) * 0.08;
-    const energy = ensemble ? c.variation * 0.4 + (1 - intent.fingerprint.cadence) * 0.35 + intent.fingerprint.novelty * 0.25 : c.variation * 0.4 + c.pace * 0.3 + c.texture * 0.3;
+    const brightness = c.level * 0.16 + intent.shape * 0.2 + intent.fingerprint.entropy * 0.24 + intent.history.range * 0.2 + intent.history.microChange * 0.2;
+    const energy = intent.history.volatility * 0.22 + intent.history.burst * 0.18 + intent.history.microChange * 0.28 + intent.history.turn * 0.16 + (1 - intent.fingerprint.cadence) * 0.08 + intent.fingerprint.novelty * 0.08;
     return {
       brightness: clamp(0.35 + clamp(brightness - 0.35, -ranges.brightness, ranges.brightness) * amount),
       energy: clamp(0.3 + clamp(energy - 0.3, -ranges.energy, ranges.energy) * amount),
       direction: Math.tanh(frame.slope / profileScale) * amount,
       bands: bands.map((x) => 0.33 + (x - 0.33) * amount),
-      space: clamp(ensemble ? 1 - intent.fingerprint.cadence - c.texture - intent.fingerprint.irregularity * 0.5 : (c.variation - 0.5) * 2, -1, 1) * ranges.space * amount,
+      space: clamp(intent.history.recurrence - intent.history.volatility * 0.55 - intent.fingerprint.irregularity * 0.35, -1, 1) * ranges.space * amount,
       smoothing: ranges.smoothing
     };
   }
 
+  // src/lib/sonora/rules/orchestra.ts
+  var wrap = (value, size) => (value % size + size) % size;
+  var closest = (pool, target) => pool.reduce((best, note) => Math.abs(note - target) < Math.abs(best - target) ? note : best);
+  var euclidean = (cell, pulses, length, rotation = 0) => wrap((cell + rotation) * pulses, length) < pulses;
+  var pitchClass = (midi) => wrap(midi, 12);
+  var OrchestraRules = class {
+    constructor(config) {
+      __publicField(this, "events", []);
+      __publicField(this, "next", -Infinity);
+      __publicField(this, "step", 0);
+      __publicField(this, "serial", 0);
+      __publicField(this, "stopped", false);
+      __publicField(this, "lastSignal", -Infinity);
+      __publicField(this, "charge", 0);
+      __publicField(this, "motif", [0, 1, 2, 1, 0, -1, 1, 0]);
+      __publicField(this, "previousPitch", /* @__PURE__ */ new Map());
+      __publicField(this, "previousVoicing", /* @__PURE__ */ new Map());
+      __publicField(this, "lastGestureMix", /* @__PURE__ */ new Map());
+      __publicField(this, "lastInstrument", -Infinity);
+      __publicField(this, "lastGuest", -Infinity);
+      __publicField(this, "identity", 0.5);
+      __publicField(this, "rhythmIdentity", 0.5);
+      __publicField(this, "contourIdentity", 0.5);
+      __publicField(this, "identityReady", false);
+      __publicField(this, "profileSamples", 0);
+      __publicField(this, "paceAverage", 0.5);
+      __publicField(this, "variationAverage", 0.2);
+      __publicField(this, "shapeAverage", 0.5);
+      __publicField(this, "archetype", 0);
+      __publicField(this, "arrangementVariant", 0);
+      __publicField(this, "arrangementEpoch", 0);
+      __publicField(this, "packetRegime", -1);
+      __publicField(this, "regimeArrival", false);
+      __publicField(this, "cadenceAverage", 0.2);
+      __publicField(this, "cadenceBand", 2);
+      __publicField(this, "phraseVariant", 0);
+      __publicField(this, "phraseEnergy", 0.5);
+      __publicField(this, "config");
+      __publicField(this, "score");
+      this.config = config;
+      this.score = mood(config.mood).score;
+    }
+    configure(config, time) {
+      const before = soundSlots(this.config);
+      const after = soundSlots(config);
+      if (JSON.stringify(before.map((slot) => slot.patch.notes)) !== JSON.stringify(after.map((slot) => slot.patch.notes)) || before.some((slot, index) => {
+        var _a;
+        return slot.patch.tuning !== ((_a = after[index]) == null ? void 0 : _a.patch.tuning);
+      })) {
+        this.events.push({ type: "release", time });
+        this.previousPitch.clear();
+        this.previousVoicing.clear();
+        this.next = -Infinity;
+      }
+      this.config = config;
+    }
+    observe(intent) {
+      var _a, _b, _c, _d, _e, _f, _g;
+      if (intent.frame.seq === this.lastSignal) return;
+      this.lastSignal = intent.frame.seq;
+      const impulse = intent.history.microChange * 0.3 + intent.history.turn * 0.24 + intent.history.burst * 0.18 + intent.fingerprint.novelty * 0.18 + Math.abs(intent.history.deviation) * 0.1;
+      this.charge = clamp(this.charge * 0.86 + impulse * 0.28 * ((_a = this.config.plantResponse) != null ? _a : 1));
+      const cell = wrap(intent.frame.seq * 3, this.motif.length);
+      const measured = Math.round(Math.tanh(
+        intent.frame.profile[wrap(cell + intent.frame.seq, 10)] / intent.profileScale
+      ) * 3 + intent.contour);
+      this.motif[cell] += Math.sign(measured - this.motif[cell]);
+      const follow = this.profileSamples ? 0.16 : 1;
+      this.paceAverage += (intent.character.pace - this.paceAverage) * follow;
+      this.variationAverage += (intent.character.variation - this.variationAverage) * follow;
+      this.shapeAverage += (intent.shape - this.shapeAverage) * follow;
+      if (((_c = (_b = intent.packet) == null ? void 0 : _b.confidence) != null ? _c : 0) >= 0.3)
+        this.cadenceAverage += (intent.packet.cadence - this.cadenceAverage) * (this.profileSamples ? 0.24 : 1);
+      this.profileSamples++;
+      const packetRegime = (_e = (_d = intent.packet) == null ? void 0 : _d.regime) != null ? _e : 0;
+      if (this.packetRegime < 0) this.packetRegime = packetRegime;
+      const regimeChanged = packetRegime !== this.packetRegime && ((_g = (_f = intent.packet) == null ? void 0 : _f.confidence) != null ? _g : 0) >= 0.3;
+      if (regimeChanged) {
+        this.packetRegime = packetRegime;
+        if (!this.identityReady) return;
+        this.paceAverage = intent.packet.pace;
+        this.cadenceAverage = intent.packet.cadence;
+        this.variationAverage = intent.character.variation;
+        this.shapeAverage = intent.shape;
+        this.lockProfile();
+        this.arrangementEpoch++;
+        this.regimeArrival = true;
+        this.step = 0;
+        this.charge = 1;
+        this.lastInstrument = -Infinity;
+        this.lastGuest = -Infinity;
+        return;
+      }
+      if (!this.identityReady && this.profileSamples >= 12) {
+        this.lockProfile();
+      }
+    }
+    lockProfile() {
+      const slow = this.paceAverage < 0.65 ? 1 : 0;
+      const still = this.variationAverage < 0.1 ? 2 : 0;
+      this.archetype = slow + still;
+      this.cadenceBand = this.cadenceAverage < 0.04 ? 0 : this.cadenceAverage < 0.14 ? 1 : this.cadenceAverage < 0.35 ? 2 : 3;
+      this.arrangementVariant = this.cadenceBand;
+      this.identity = [0.14, 0.4, 0.67, 0.88][this.archetype];
+      this.rhythmIdentity = [0.16, 0.42, 0.68, 0.9][this.arrangementVariant];
+      this.contourIdentity = [0.72, 0.84, 0.24, 0.4][this.arrangementVariant] + clamp((this.shapeAverage - 0.5) * 0.24, -0.08, 0.08);
+      this.identityReady = true;
+      this.previousPitch.clear();
+      this.previousVoicing.clear();
+    }
+    definition(slot) {
+      return mood(this.config.mood).slots.find((candidate) => candidate.id === slot.id);
+    }
+    activity(intent) {
+      return clamp(intent.character.variation * 0.28 + intent.character.pace * 0.12 + intent.fingerprint.entropy * 0.18 + intent.history.volatility * 0.16 + intent.history.microChange * 0.16 + this.charge * 0.1);
+    }
+    beat(intent) {
+      const base = this.score.style === "organic" ? 0.72 : this.score.style === "serene" ? 0.86 : this.score.style === "drift" ? 0.78 : this.score.style === "psychedelic" ? 0.64 : 0.56;
+      const breathing = this.score.style === "ritual" ? 0.08 : intent.fingerprint.cadence * 0.2 + (1 - intent.character.variation) * 0.1;
+      const profileTempo = this.identityReady ? [0.7, 0.86, 1.05, 1.35][this.cadenceBand] : 1;
+      return (base + breathing) * profileTempo / this.config.speed;
+    }
+    rootDegree() {
+      const span = this.score.style === "psychedelic" ? 4 : this.score.style === "organic" ? 6 : 8;
+      const base = [...this.score.progression];
+      const variants = [
+        base,
+        [base[0], ...base.slice(1).reverse()],
+        [...base.slice(1), base[0]],
+        base.map((_, index) => index % 2 === 0 ? base[0] : base[wrap(2 + Math.floor(index / 2), base.length)])
+      ];
+      const progression = variants[this.arrangementVariant];
+      return progression[(Math.floor(this.step / span) + this.arrangementEpoch) % progression.length];
+    }
+    profileName() {
+      return ["flowing", "responsive", "rooted", "contemplative"][this.archetype];
+    }
+    sceneName() {
+      return ["cascade", "ripples", "lyrical", "stillness"][this.cadenceBand];
+    }
+    evolvePhrase(intent, cell) {
+      if (cell !== 0) return;
+      const signal = Math.tanh(intent.frame.profile[wrap(Math.floor(this.step / 16) * 3 + this.arrangementEpoch, 10)] / intent.profileScale);
+      const stride = 1 + wrap(Math.round((signal + 1) * 2 + intent.history.turn * 3), 3);
+      this.phraseVariant = wrap(this.phraseVariant + stride, 4);
+      this.phraseEnergy = clamp(this.activity(intent) * 0.58 + intent.fingerprint.novelty * 0.24 + intent.history.recurrence * 0.18);
+    }
+    chordClasses(rootDegree, color = false) {
+      var _a;
+      const harmony = (_a = this.config.harmony) != null ? _a : this.score.harmony;
+      const root = harmony.notes[wrap(rootDegree, harmony.notes.length)];
+      const shapes = color ? [[0, 4, 7, 11], [0, 3, 7, 10], [0, 4, 7, 9], [0, 2, 7], [0, 5, 7], [0, 4, 7]] : [[0, 4, 7], [0, 3, 7], [0, 2, 7], [0, 5, 7]];
+      const phase = Math.floor(this.step / 16) + this.arrangementVariant + this.arrangementEpoch;
+      for (let offset = 0; offset < shapes.length; offset++) {
+        const classes = shapes[wrap(phase + offset, shapes.length)].map((interval) => wrap(root + interval, 12));
+        if (classes.every((candidate) => harmony.notes.includes(candidate))) return classes;
+      }
+      const degrees = color ? [0, 2, 4, 6] : [0, 2, 4];
+      return degrees.map((degree) => harmony.notes[wrap(rootDegree + degree, harmony.notes.length)]);
+    }
+    voicing(slot, rootDegree, count, color = false) {
+      var _a;
+      const pool = notePool(slot.patch);
+      const classes = this.chordClasses(rootDegree, color);
+      const definition = this.definition(slot);
+      const low = definition.role === "lead" || definition.role === "counterline" ? Math.floor((pool.length - 1) * 0.12) : 0;
+      const highRatio = this.score.style === "serene" && definition.role === "lead" ? 0.64 : definition.role === "lead" || definition.role === "counterline" ? 0.8 : 1;
+      const high = Math.max(low, Math.floor((pool.length - 1) * highRatio));
+      const candidates = pool.slice(low, high + 1).filter((note) => classes.includes(pitchClass(note)));
+      if (!candidates.length) return [];
+      const previous = (_a = this.previousVoicing.get(slot.id)) != null ? _a : [];
+      const result = [];
+      for (let voice = 0; voice < count; voice++) {
+        const registerShift = [0.08, 0.18, -0.05, -0.13][this.arrangementVariant] + [-0.11, 0.02, 0.13, -0.04][this.phraseVariant];
+        const home = pool[Math.round((pool.length - 1) * clamp(0.28 + voice * 0.25 + registerShift, 0, 1))];
+        const target = previous[voice] === void 0 ? home : previous[voice] * 0.64 + home * 0.36;
+        const available = candidates.filter((note) => !result.includes(note) && result.every((other) => Math.abs(note - other) >= 3));
+        if (!available.length) break;
+        result.push(closest(available, target));
+      }
+      result.sort((a, b) => a - b);
+      this.previousVoicing.set(slot.id, result);
+      return result;
+    }
+    effectMix(slot, intent, phase) {
+      var _a;
+      const role = (_a = this.definition(slot).role) != null ? _a : "pad";
+      const activity = this.activity(intent);
+      const sample = 0.5 + 0.5 * Math.tanh(
+        intent.frame.profile[wrap(this.step + slot.id.length, 10)] / intent.profileScale
+      );
+      const rise = [0.92, 0.97, 1, 0.95][phase];
+      let level = slot.level * rise;
+      let delayOn = false, delayWet = 0, delayRate = 82;
+      let reverbWet = 20, reverbAmount = 70;
+      let chorusOn = slot.kind === "synth", chorusDepth = 4, chorusRate = 18, smoothing = 1.8;
+      if (this.score.style === "organic") {
+        reverbWet = role === "lead" ? 8 + sample * 2 : 11 + sample * 2;
+        reverbAmount = 67 + (1 - activity) * 7;
+        chorusOn = slot.kind === "synth";
+        chorusDepth = 3 + sample * 4;
+        smoothing = role === "lead" ? 1.1 : 2.4;
+      } else if (this.score.style === "serene") {
+        const balances = {
+          foundation: [0.92, 0.84, 1, 0.9],
+          pad: [0.9, 0.8, 0.82, 1],
+          lead: [1, 0.98, 0.86, 0.8],
+          counterline: [0.9, 1, 0.72, 0.58],
+          pulse: [1, 1, 1, 1],
+          accent: [1, 1, 1, 1]
+        };
+        level *= balances[role][this.archetype];
+        reverbWet = role === "foundation" ? 8 : role === "pad" ? 12 : role === "lead" ? 9 : 10;
+        reverbAmount = role === "pad" ? 73 : 66 + sample * 5;
+        chorusOn = slot.kind === "synth";
+        chorusDepth = role === "pad" ? 7 + sample * 3 : 3 + sample * 2;
+        smoothing = role === "lead" ? 1.25 : 2.8;
+      } else if (this.score.style === "drift") {
+        level *= role === "accent" ? 0.72 + activity * 0.28 : 1;
+        delayOn = false;
+        delayWet = 0;
+        delayRate = 84;
+        reverbWet = 9 + (1 - activity) * 3;
+        reverbAmount = 71 + sample * 6;
+        chorusOn = slot.kind === "synth";
+        chorusDepth = 7 + sample * 6;
+        smoothing = 3;
+      } else if (this.score.style === "psychedelic") {
+        delayOn = false;
+        delayWet = 0;
+        delayRate = 78;
+        reverbWet = 8 + (1 - sample) * 3;
+        reverbAmount = 70 + activity * 8;
+        chorusOn = slot.kind === "synth";
+        chorusDepth = 10 + sample * 9;
+        chorusRate = 18 + (1 - sample) * 18;
+        smoothing = 1.8;
+      } else {
+        const percussion = preset(slot.patch.preset).family === "percussion";
+        delayOn = false;
+        reverbWet = percussion ? 5 + activity * 2 : 9 + sample * 3;
+        reverbAmount = percussion ? 50 : 67 + activity * 7;
+        chorusOn = slot.kind === "synth";
+        chorusDepth = chorusOn ? 4 + sample * 4 : 0;
+        smoothing = percussion ? 1.2 : 2.2;
+      }
+      return {
+        level: clamp(level, 0, 1),
+        delay: { on: delayOn, wet: clamp(delayWet, 0, 18), rate: clamp(delayRate, 50, 90) },
+        reverb: { on: true, wet: clamp(reverbWet, 0, 32), amount: clamp(reverbAmount, 20, 86) },
+        chorus: { on: chorusOn, depth: clamp(chorusDepth, 0, 22), rate: clamp(chorusRate, 8, 50) },
+        smoothing
+      };
+    }
+    automate(intent, time) {
+      if (this.step % 4) return;
+      const phase = Math.floor(this.step / 16) % 4;
+      for (const slot of soundSlots(this.config))
+        this.events.push({ type: "mix", time, slot: slot.id, mix: this.effectMix(slot, intent, phase) });
+    }
+    /** Each gesture gets its own space and echo, on top of the slower phrase mix. */
+    gestureMix(slot, intent, reason, articulation) {
+      const phase = Math.floor(this.step / 16) % 4;
+      const mix = this.effectMix(slot, intent, phase);
+      const signal = Math.tanh(intent.frame.profile[wrap(this.step * 5 + this.serial + slot.id.length, 10)] / intent.profileScale);
+      const response = /answer|response|resolution|apparition|glint|ember/.test(reason) ? 1 : /question|call|pulse/.test(reason) ? -0.45 : signal;
+      const percussion = preset(slot.patch.preset).family === "percussion";
+      return __spreadProps(__spreadValues({}, mix), {
+        delay: __spreadProps(__spreadValues({}, mix.delay), {
+          wet: mix.delay.on ? clamp(mix.delay.wet + response + signal * 0.6, 0, 8) : 0
+        }),
+        reverb: {
+          on: true,
+          wet: clamp(mix.reverb.wet + response * (percussion ? 0.5 : 1.5) + articulation, 0, 32),
+          amount: clamp(mix.reverb.amount + signal * 2 + response * 2, 42, 86)
+        },
+        chorus: __spreadProps(__spreadValues({}, mix.chorus), {
+          depth: mix.chorus.on ? clamp(mix.chorus.depth + signal * 2, 0, 22) : 0
+        }),
+        smoothing: slot.kind === "instrument" ? 1.8 + articulation * 0.8 : mix.smoothing
+      });
+    }
+    emit(slot, intent, time, midi, duration, velocity, pan, reason, articulation = 0.5, pitchCurve, greeting = false, sampleOffset = 0) {
+      var _a, _b, _c;
+      const articulationSignal = intent.frame.seq < 0 ? 0 : Math.tanh(intent.frame.profile[wrap(this.step + this.serial * 3 + slot.id.length, 10)] / (intent.profileScale || 1));
+      const shapedArticulation = clamp(articulation + articulationSignal * 0.16, 0.05, 0.98);
+      const patch = greeting ? greetingPatch(slot.patch) : __spreadProps(__spreadValues({}, slot.patch), {
+        envelope: {
+          on: true,
+          attack: slot.kind === "synth" ? clamp(22 + shapedArticulation * 50, 0, 100) : clamp(shapedArticulation * 18, 0, 100),
+          release: slot.kind === "synth" ? clamp(52 + shapedArticulation * 35, 0, 100) : clamp(18 + shapedArticulation * 48, 0, 100)
+        }
+      });
+      const previousMix = (_a = this.lastGestureMix.get(slot.id)) != null ? _a : -Infinity;
+      if (!greeting && intent.frame.seq >= 0 && time - previousMix > 0.32) {
+        this.events.push({
+          type: "mix",
+          time,
+          slot: slot.id,
+          mix: this.gestureMix(slot, intent, reason, shapedArticulation)
+        });
+        this.lastGestureMix.set(slot.id, time);
+      }
+      this.events.push({ type: "note", time, note: {
+        id: this.serial++,
+        time,
+        sourceTime: intent.frame.time,
+        source: intent.frame.seq,
+        midi,
+        duration,
+        velocity: clamp(velocity, 5, 127),
+        pan: clamp(pan, -1, 1),
+        color: clamp(0.2 + intent.detail * 0.45 + ((_b = intent.history) == null ? void 0 : _b.microChange) * 0.35),
+        lane: greeting ? "greeting" : slot.kind,
+        slot: greeting ? "$greeting" : slot.id,
+        patch,
+        fade: slot.kind === "synth" ? Math.min(duration * 0.32, 2.6) : void 0,
+        sampleOffset,
+        pitchCurve,
+        plantProfile: this.identityReady ? this.profileName() : "listening",
+        plantEpoch: this.arrangementEpoch,
+        plantTempoScene: this.sceneName(),
+        packetCadenceMs: intent.packet ? Math.round(intent.packet.cadence * 1e3) : void 0,
+        packetTempoChange: (_c = intent.packet) == null ? void 0 : _c.change,
+        reason: greeting ? "orchestra-greeting" : `${this.score.style}-${reason}`,
+        phraseStep: this.step % 16
+      } });
+    }
+    melodicNote(slot, intent, rootDegree, offset, chordTone) {
+      const pool = notePool(slot.patch);
+      const previous = this.previousPitch.get(slot.id);
+      const definition = this.definition(slot);
+      const low = Math.floor((pool.length - 1) * 0.18);
+      const highRatio = this.score.style === "serene" && definition.role === "lead" ? 0.64 : 0.78;
+      const high = Math.max(low, Math.floor((pool.length - 1) * highRatio));
+      const center = Math.round((low + high) * 0.5);
+      const previousIndex = previous === void 0 ? center : Math.max(0, pool.indexOf(previous));
+      const motif = this.motif[wrap(this.step + offset + Math.floor(this.contourIdentity * this.motif.length), this.motif.length)];
+      const local = Math.round(Math.tanh(intent.frame.profile[wrap(this.step * 3 + offset, 10)] / intent.profileScale) * 2);
+      const gravity = previousIndex > center + 2 ? -1 : previousIndex < center - 2 ? 1 : 0;
+      let candidates = pool.slice(low, high + 1);
+      if (chordTone) {
+        const classes = this.chordClasses(rootDegree);
+        candidates = candidates.filter((note) => classes.includes(pitchClass(note)));
+      }
+      if (!candidates.length) candidates = pool.slice(low, high + 1);
+      const personaStep = Math.round((this.contourIdentity - 0.5) * 5);
+      const target = pool[Math.round(clamp(previousIndex + motif + local + gravity + personaStep, low, high))];
+      const nearby = candidates.filter((note) => previous === void 0 || Math.abs(note - previous) <= 7);
+      let midi = closest(nearby.length ? nearby : candidates, target);
+      if (midi === previous && candidates.length > 1)
+        midi = closest(
+          candidates.filter((note) => note !== midi),
+          midi + (previousIndex >= center || intent.contour < 0 ? -2 : 2)
+        );
+      this.previousPitch.set(slot.id, midi);
+      return midi;
+    }
+    guest(slot, intent, time, beat, cell, root) {
+      if (!slot || this.step < 32 && !this.regimeArrival) return;
+      const target = wrap(5 + Math.floor(this.identity * 9), 16);
+      const overdue = time - this.lastGuest > beat * [40, 56, 80, 120][this.cadenceBand];
+      const invited = this.charge + intent.history.turn * 0.3 + intent.fingerprint.novelty * 0.24 > 0.92;
+      if (!this.regimeArrival && (cell !== target || !overdue && !invited)) return;
+      const midi = this.melodicNote(slot, intent, root, this.identity > 0.5 ? 3 : -2, true);
+      this.emit(
+        slot,
+        intent,
+        time + beat * 0.12,
+        midi,
+        beat * (3.6 + intent.history.recurrence),
+        38 + this.charge * 16,
+        0.22,
+        this.regimeArrival ? "packet-regime-voice" : "plant-invited-voice",
+        0.9
+      );
+      this.lastGuest = time;
+      this.charge *= 0.45;
+    }
+    organic(intent, time, beat, cell, root) {
+      const slots = Object.fromEntries(soundSlots(this.config).map((slot) => [slot.id, slot]));
+      const activity = this.activity(intent);
+      const plans = [
+        { groundEvery: 8, groundVoices: 1, voices: 3, spread: 0.22, duration: 2.2 },
+        { groundEvery: 8, groundVoices: 2, voices: 3, spread: 0.38, duration: 3.8 },
+        { groundEvery: 8, groundVoices: 1, voices: 1, spread: 0, duration: 3.2 },
+        { groundEvery: 16, groundVoices: 2, voices: 2, spread: 0.03, duration: 8.2 }
+      ];
+      const scenePatterns = [
+        [[0, 3, 6, 9, 12, 15], [0, 2, 5, 8, 11, 14], [0, 4, 7, 10, 13], [0, 3, 7, 11, 15]],
+        [[0, 4, 8, 12], [0, 5, 9, 13], [0, 3, 7, 12], [0, 6, 10, 14]],
+        [[1, 6, 11, 15], [0, 5, 10, 14], [2, 7, 12], [0, 4, 9, 15]],
+        [[0, 8], [0, 10], [0, 7, 14], [0, 9]]
+      ];
+      const plan = plans[this.cadenceBand];
+      const cells = scenePatterns[this.cadenceBand][this.phraseVariant];
+      if (cell % plan.groundEvery === 0) {
+        const voices = Math.max(1, plan.groundVoices - (this.cadenceBand === 1 && this.phraseVariant % 3 === 0 ? 1 : 0)) + (this.cadenceBand === 2 && activity + this.charge > 0.82 ? 1 : 0);
+        this.voicing(slots.ground, root, voices, voices > 1).forEach((midi, voice) => this.emit(
+          slots.ground,
+          intent,
+          time + voice * beat * 0.42,
+          midi,
+          beat * ([8.5, 10, 11, 15][this.cadenceBand] - voice),
+          43 - voice * 8,
+          voice ? 0.18 : -0.12,
+          voice ? "opening-harmonic" : "living-foundation",
+          0.9
+        ));
+      }
+      if (cells.includes(cell) || this.regimeArrival) {
+        const entry = Math.max(0, cells.indexOf(cell));
+        const gesture = wrap(entry + this.phraseVariant, 4);
+        const closing = cell === cells.at(-1);
+        let voices = plan.voices;
+        if (this.cadenceBand === 0) voices = [3, 2, 1, 3][gesture];
+        else if (this.cadenceBand === 1) voices = [3, 1, 2, 4][gesture];
+        else if (this.cadenceBand === 2) voices = closing ? 2 : 1;
+        else voices = [2, 3, 2, 2][gesture];
+        if (this.regimeArrival) voices = 3;
+        const chord = voices > 1;
+        const gestureRoot = root + [0, 1, -1, 0][gesture];
+        const notes = chord ? this.voicing(slots.melody, gestureRoot, voices, true) : [this.melodicNote(
+          slots.melody,
+          intent,
+          gestureRoot,
+          [-2, 1, 3, -1][gesture],
+          cell === 0 || closing
+        )];
+        const descending = intent.history.trend < -0.08 || wrap(this.phraseVariant + entry, 3) === 2;
+        const ordered = descending && chord ? [...notes].reverse() : notes;
+        const spread = chord ? plan.spread * (0.72 + this.phraseEnergy * 0.5 + gesture * 0.06) : 0;
+        const duration = plan.duration * (0.82 + this.phraseEnergy * 0.3) + (closing ? 1.4 : gesture === 1 ? 0.55 : 0);
+        ordered.forEach((midi, voice) => this.emit(
+          slots.melody,
+          intent,
+          time + voice * beat * (this.regimeArrival ? 0.04 : spread),
+          midi,
+          beat * (this.regimeArrival ? 5.4 : duration),
+          52 + intent.motion * 13 + this.phraseEnergy * 8 - voice * 4,
+          -0.24 + voice * (0.48 / Math.max(1, voices - 1)),
+          this.regimeArrival ? "packet-regime-change" : this.cadenceBand <= 1 ? chord ? voices === 2 ? "canopy-dyad" : "canopy-arpeggio" : "canopy-solo" : this.cadenceBand === 2 ? closing ? "lyrical-resolution" : "lyrical-line" : "still-chord",
+          this.cadenceBand >= 2 ? 0.9 : 0.58
+        ));
+        if (closing) this.charge *= 0.52;
+      }
+      this.guest(slots.visitor, intent, time, beat, cell, root);
+    }
+    serene(intent, time, beat, cell, root) {
+      const slots = Object.fromEntries(soundSlots(this.config).map((slot) => [slot.id, slot]));
+      const activity = this.activity(intent);
+      if (cell % 8 === 0) {
+        this.voicing(slots.ground, root, 1).forEach((midi) => this.emit(slots.ground, intent, time, midi, beat * 9.5, 49, -0.08, "grounded-root", 0.9));
+        this.voicing(slots.air, root, 2, true).forEach((midi, voice) => this.emit(
+          slots.air,
+          intent,
+          time + voice * beat * 0.32,
+          midi,
+          beat * (7.8 - voice * 0.3),
+          35 - voice * 6,
+          voice ? 0.28 : -0.24,
+          "voice-led-bed",
+          0.82
+        ));
+      }
+      const phrase = Math.floor(this.step / 16);
+      const phraseShift = Math.round(Math.tanh(
+        intent.frame.profile[wrap(phrase + 3, 10)] / intent.profileScale
+      ));
+      const patterns = [[0, 3, 6, 9, 12, 15], [0, 4, 8, 12], [1, 7, 13], [0, 8]];
+      const pattern = patterns[this.arrangementVariant];
+      const opening = pattern[0], closingCell = pattern.at(-1);
+      const middleCells = pattern.slice(1, -1).map((entry) => wrap(entry + phraseShift, 16));
+      const middle = middleCells.includes(cell);
+      const chordCell = this.regimeArrival || cell === opening || middle || cell === closingCell;
+      const middleThreshold = [0.2, 0.32, 0.58, 1][this.cadenceBand];
+      if (chordCell && (!middle || activity + this.charge > middleThreshold)) {
+        const closing = cell === closingCell;
+        const voices = this.regimeArrival || this.cadenceBand <= 1 ? 3 : 2;
+        const reason = this.regimeArrival ? "packet-regime-change" : closing ? "resolution-chord" : cell === opening ? "question-chord" : "passing-dyad";
+        const notes = this.voicing(slots.lead, root, voices, true);
+        const descending = intent.history.trend < -0.1 || (phrase + Math.floor(this.identity * 5)) % 3 === 2;
+        const ordered = descending ? [...notes].reverse() : notes;
+        const broken = this.cadenceBand <= 1 && !closing;
+        const spread = broken ? beat * ([0.22, 0.42][this.cadenceBand] + intent.fingerprint.irregularity * 0.24) : beat * 0.025;
+        const sustain = [0.72, 0.95, 1.25, 1.65][this.cadenceBand];
+        ordered.forEach((midi, voice) => this.emit(
+          slots.lead,
+          intent,
+          time + voice * spread,
+          midi,
+          beat * (closing ? 6.2 : broken ? 4.8 + voice * 0.25 : 4.6) * sustain,
+          53 + activity * 12 + (this.cadenceBand <= 1 ? 4 : 0) - voice * 3,
+          -0.2 + voice * (0.4 / Math.max(1, voices - 1)),
+          broken ? `${reason}-slow` : reason,
+          closing ? 0.98 : 0.88
+        ));
+        if (closing) this.charge *= 0.55;
+      }
+      const responseCell = 10 + wrap(Math.round((intent.fingerprint.asymmetry + 1) * 2) + phrase, 5);
+      const responseWait = [24, 36, 64, 96][this.cadenceBand];
+      const overdue = time - this.lastInstrument > beat * responseWait;
+      if (cell === responseCell && (overdue || this.charge + activity > 0.82)) {
+        const midi = this.melodicNote(slots.answer, intent, root, 3, true);
+        this.emit(
+          slots.answer,
+          intent,
+          time + beat * (0.08 + intent.fingerprint.cadence * 0.18),
+          midi,
+          beat * (2.4 + intent.history.recurrence),
+          39 + this.charge * 15,
+          0.26,
+          "secondary-response",
+          0.9
+        );
+        this.lastInstrument = time;
+        this.charge *= 0.44;
+      }
+      if (this.regimeArrival) {
+        const midi = this.melodicNote(slots.answer, intent, root, -2, true);
+        this.emit(
+          slots.answer,
+          intent,
+          time + beat * 0.85,
+          midi,
+          beat * 3.8,
+          48,
+          0.3,
+          "packet-regime-response",
+          0.94
+        );
+        this.lastInstrument = time;
+      }
+    }
+    drift(intent, time, beat, cell, root) {
+      const slots = Object.fromEntries(soundSlots(this.config).map((slot) => [slot.id, slot]));
+      if (cell % 8 === 0) this.voicing(slots.horizon, root, 2, true).forEach((midi, voice) => this.emit(
+        slots.horizon,
+        intent,
+        time + voice * beat * 0.5,
+        midi,
+        beat * 11,
+        38 - voice * 7,
+        voice ? 0.14 : -0.12,
+        "slow-horizon",
+        0.95
+      ));
+      const cloudCells = [[0, 4, 8, 12], [0, 3, 7, 11, 14], [0, 6, 10], [0, 8]][this.arrangementVariant];
+      if (cloudCells.includes(cell)) this.voicing(
+        slots.cloud,
+        root,
+        this.arrangementVariant === 1 || this.activity(intent) > 0.6 ? 3 : 2,
+        true
+      ).forEach((midi, voice) => this.emit(
+        slots.cloud,
+        intent,
+        time + voice * beat * 0.38,
+        midi,
+        beat * (5.8 - voice * 0.25),
+        30 - voice * 4,
+        (voice - 1) * 0.3,
+        "suspended-cloud",
+        0.88
+      ));
+      const glintCells = [[5, 13], [2, 7, 12], [4, 11], [7, 15]][this.arrangementVariant];
+      if (glintCells.includes(cell) && this.activity(intent) + this.charge > 0.62) {
+        const midi = this.melodicNote(slots.glint, intent, root, 5, true);
+        this.emit(
+          slots.glint,
+          intent,
+          time,
+          midi,
+          beat * 2.4,
+          34 + this.charge * 22,
+          cell === 5 ? -0.42 : 0.42,
+          "synth-glint",
+          0.42,
+          [-0.3, 0.45, 0]
+        );
+      }
+      const overdue = time - this.lastInstrument > beat * 44;
+      if (cell === 15 && (overdue || this.charge > 0.58)) {
+        const pool = notePool(slots.marker.patch);
+        const classes = this.chordClasses(root);
+        const candidates = pool.filter((note) => classes.includes(pitchClass(note)));
+        const midi = closest(candidates.length ? candidates : pool, pool[Math.floor(pool.length * 0.55)]);
+        this.emit(
+          slots.marker,
+          intent,
+          time,
+          midi,
+          beat * 3.4,
+          47 + this.charge * 24,
+          intent.history.deviation * 0.3,
+          "rare-marker",
+          0.85
+        );
+        this.lastInstrument = time;
+        this.charge *= 0.16;
+      }
+      if (this.regimeArrival) {
+        const midi = this.melodicNote(slots.marker, intent, root, -3, true);
+        this.emit(
+          slots.marker,
+          intent,
+          time + beat * 0.7,
+          midi,
+          beat * 3.2,
+          52,
+          0.2,
+          "packet-regime-marker",
+          0.9
+        );
+        this.lastInstrument = time;
+      }
+    }
+    psychedelic(intent, time, beat, cell, root) {
+      const slots = Object.fromEntries(soundSlots(this.config).map((slot) => [slot.id, slot]));
+      const direction = (intent.contour || intent.history.trend) < 0 ? -1 : 1;
+      if (cell % 8 === 0) this.voicing(slots.tide, root, 2, true).forEach((midi, voice) => this.emit(
+        slots.tide,
+        intent,
+        time + voice * beat * 0.05,
+        midi,
+        beat * 12,
+        45 + intent.motion * 14 - voice * 7,
+        voice ? 0.12 : -0.12,
+        "stable-modal-pedal",
+        0.97
+      ));
+      const spiralCells = [[0, 5, 10, 15], [0, 3, 7, 12], [0, 6, 11], [0, 8]][this.arrangementVariant];
+      if (spiralCells.includes(cell)) this.voicing(
+        slots.spiral,
+        root,
+        this.arrangementVariant === 1 ? 3 : 2,
+        true
+      ).forEach((midi, voice) => this.emit(
+        slots.spiral,
+        intent,
+        time + voice * beat * (0.34 + this.identity * 0.18),
+        midi,
+        beat * 6.4,
+        38 - voice * 4,
+        direction * (voice ? 0.36 : -0.32),
+        "polymetric-harmony",
+        0.88
+      ));
+      const auraCells = [[3, 8, 13], [2, 6, 10, 14], [4, 11], [6, 14]][this.arrangementVariant];
+      if (auraCells.includes(cell) && (cell === 8 || this.activity(intent) + this.charge > 0.52)) {
+        const midi = this.melodicNote(slots.aura, intent, root, 2, cell % 4 === 1);
+        this.emit(
+          slots.aura,
+          intent,
+          time,
+          midi,
+          beat * (3.8 + this.charge),
+          34 + this.activity(intent) * 18,
+          cell % 2 ? 0.42 : -0.42,
+          "prismatic-line",
+          0.9
+        );
+      }
+      if ((cell === 7 || cell === 15) && time - this.lastInstrument > beat * 32 && (this.charge > 0.42 || intent.history.turn > 0.48)) {
+        const midi = this.melodicNote(slots.apparition, intent, root, 6, true);
+        this.emit(
+          slots.apparition,
+          intent,
+          time + beat * 0.18,
+          midi,
+          beat * 1.8,
+          48 + this.charge * 35,
+          -intent.history.deviation * 0.42,
+          "sitar-apparition",
+          0.28
+        );
+        this.lastInstrument = time;
+        this.charge *= 0.24;
+      }
+      if (this.regimeArrival) {
+        const midi = this.melodicNote(slots.apparition, intent, root, -2, true);
+        this.emit(
+          slots.apparition,
+          intent,
+          time + beat * 0.8,
+          midi,
+          beat * 2.8,
+          54,
+          -0.28,
+          "packet-regime-apparition",
+          0.82
+        );
+        this.lastInstrument = time;
+      }
+    }
+    ritual(intent, time, beat, cell, root) {
+      const slots = Object.fromEntries(soundSlots(this.config).map((slot) => [slot.id, slot]));
+      const activity = this.activity(intent);
+      if (cell % 8 === 0) this.voicing(slots.earth, root, 2).forEach((midi, voice) => this.emit(
+        slots.earth,
+        intent,
+        time + voice * beat * 0.2,
+        midi,
+        beat * 10,
+        43 - voice * 9,
+        0,
+        "earth-pedal",
+        0.9
+      ));
+      const percussion = notePool(slots.pulse.patch);
+      const hit = euclidean(
+        cell,
+        2 + this.arrangementVariant + Math.round(activity * 2),
+        16,
+        Math.round(intent.fingerprint.asymmetry * 3) + this.arrangementVariant * 2
+      );
+      const ghost = !hit && activity > 0.76 && euclidean(cell, 1, 9, this.step % 9);
+      if ((hit || ghost) && cell < 15) {
+        const index = wrap(cell + Math.round(intent.shape * 5), percussion.length);
+        this.emit(
+          slots.pulse,
+          intent,
+          time,
+          percussion[index],
+          beat * (ghost ? 0.3 : 0.65),
+          (cell % 4 === 0 ? 62 : 52) * (ghost ? 0.42 : 1),
+          -0.08,
+          ghost ? "ghost-pulse" : "ground-pulse",
+          0.08
+        );
+      }
+      const breathCells = [[2, 10, 14], [1, 6, 11, 14], [3, 10], [4, 12]][this.arrangementVariant];
+      if (breathCells.includes(cell)) {
+        const midi = this.melodicNote(slots.breath, intent, root, cell < 8 ? 0 : 3, cell % 8 === 2);
+        this.emit(
+          slots.breath,
+          intent,
+          time + beat * 0.08,
+          midi,
+          beat * (cell === 14 ? 3.6 : 2.5),
+          49 + intent.motion * 17,
+          0.2,
+          cell < 8 ? "wind-call" : "wind-response",
+          0.84
+        );
+      }
+      const emberCells = [[3, 7, 11], [2, 5, 9, 13], [5, 13], [7]][this.arrangementVariant];
+      if (emberCells.includes(cell) && activity + this.charge > 0.52) {
+        const midi = this.melodicNote(slots.embers, intent, root, 4, true);
+        this.emit(
+          slots.embers,
+          intent,
+          time + beat * 0.18,
+          midi,
+          beat * 0.72,
+          48 + activity * 27,
+          -0.28,
+          "kalimba-ember",
+          0.18
+        );
+      }
+      if (this.regimeArrival) {
+        const midi = this.melodicNote(slots.breath, intent, root, -2, true);
+        this.emit(
+          slots.breath,
+          intent,
+          time + beat * 0.65,
+          midi,
+          beat * 3.4,
+          55,
+          0.24,
+          "packet-regime-breath",
+          0.9
+        );
+      }
+    }
+    tick(intent, time) {
+      if (this.stopped) return;
+      this.observe(intent);
+      if (time < this.next) return;
+      const beat = this.beat(intent), cell = this.step % 16;
+      if (!this.identityReady && this.step === 0) this.phraseVariant = 1;
+      else this.evolvePhrase(intent, cell);
+      const root = this.rootDegree();
+      const scoreTime = this.regimeArrival && intent.greeting ? time + 1.05 : time;
+      this.automate(intent, scoreTime);
+      if (this.score.style === "organic") this.organic(intent, scoreTime, beat, cell, root);
+      else if (this.score.style === "serene") this.serene(intent, scoreTime, beat, cell, root);
+      else if (this.score.style === "drift") this.drift(intent, scoreTime, beat, cell, root);
+      else if (this.score.style === "psychedelic") this.psychedelic(intent, scoreTime, beat, cell, root);
+      else this.ritual(intent, scoreTime, beat, cell, root);
+      this.regimeArrival = false;
+      const swing = this.score.style === "ritual" ? intent.fingerprint.irregularity * 0.12 : 0;
+      this.next = scoreTime + beat * (1 + (cell % 2 ? -swing : swing));
+      this.step++;
+    }
+    greet(frame) {
+      var _a;
+      const slots = soundSlots(this.config);
+      const slot = (_a = slots.find((candidate) => candidate.kind === "instrument" && !preset(candidate.patch.preset).percussion)) != null ? _a : slots[0];
+      const pool = notePool(slot.patch);
+      const fake = { frame, detail: 0.35, history: { microChange: 0 } };
+      [0, 0.16, 0.38].forEach((delay, index) => this.emit(
+        slot,
+        fake,
+        frame.time + delay,
+        pool[Math.min(pool.length - 1, Math.floor(pool.length * 0.48) + index * 2)],
+        0.8,
+        64 - index * 7,
+        (index - 1) * 0.18,
+        "greeting",
+        0.4,
+        void 0,
+        true
+      ));
+    }
+    audition(lane, time, slotId) {
+      const frame = {
+        time,
+        seq: -1,
+        center: 14,
+        level: 0,
+        spread: 0.02,
+        roughness: 0.01,
+        slope: 0,
+        spectrum: Array(9).fill(0.01),
+        profile: Array(10).fill(0),
+        cadence: 0
+      };
+      if (lane === "greeting") {
+        this.greet(frame);
+        return;
+      }
+      const slot = soundSlots(this.config).find((candidate) => slotId ? candidate.id === slotId : candidate.kind === lane);
+      if (!slot) return;
+      const fake = { frame, detail: 0.35, history: { microChange: 0 } };
+      const pool = notePool(slot.patch);
+      if (slot.kind === "synth") this.voicing(slot, this.rootDegree(), 2, true).forEach((midi, voice) => this.emit(
+        slot,
+        fake,
+        time + voice * 0.18,
+        midi,
+        3.6,
+        58 - voice * 8,
+        voice ? 0.2 : -0.2,
+        "audition",
+        0.75
+      ));
+      else this.emit(
+        slot,
+        fake,
+        time,
+        pool[Math.floor(pool.length * 0.52)],
+        1.2,
+        68,
+        0,
+        "audition",
+        0.35
+      );
+    }
+    finish(time) {
+      this.stopped = true;
+      this.events.push({ type: "release", time });
+    }
+    drain() {
+      const events = this.events;
+      this.events = [];
+      return events;
+    }
+  };
+
+  // src/lib/sonora/rules/index.ts
+  var createRules = (config) => new OrchestraRules(config);
+
+  // src/lib/sonora/composer.ts
+  var Composer = class {
+    constructor(config = defaultConfiguration()) {
+      __publicField(this, "config");
+      __publicField(this, "interpreter", new PlantInterpreter());
+      __publicField(this, "rules");
+      __publicField(this, "intent", null);
+      __publicField(this, "events", []);
+      __publicField(this, "stopped", false);
+      __publicField(this, "clock", -Infinity);
+      __publicField(this, "serial", 0);
+      this.config = sanitizeConfiguration(config);
+      this.rules = createRules(this.config);
+    }
+    collect() {
+      var _a, _b, _c, _d;
+      for (const event of this.rules.drain()) {
+        if (event.type === "note") {
+          event.note.id = this.serial++;
+          (_c = (_b = event.note).slot) != null ? _c : _b.slot = event.note.lane === "greeting" ? "$greeting" : (_a = soundSlots(this.config).find((s) => s.kind === event.note.lane)) == null ? void 0 : _a.id;
+        }
+        if (event.type === "release" && event.lane && !event.slot)
+          event.slot = event.lane === "greeting" ? "$greeting" : (_d = soundSlots(this.config).find((s) => s.kind === event.lane)) == null ? void 0 : _d.id;
+        this.events.push(event);
+      }
+    }
+    configure(config, time) {
+      const next = sanitizeConfiguration(config);
+      const moodChanged = next.mood !== this.config.mood;
+      if (moodChanged) {
+        this.rules.finish(time);
+        this.collect();
+        this.rules = createRules(next);
+      } else {
+        this.rules.configure(next, time);
+        this.collect();
+      }
+      this.config = next;
+      if (this.intent) {
+        this.events.push({ type: "expression", time, expression: plantExpression(this.intent, next) });
+        if (moodChanged) this.rules.tick(this.intent, time);
+        this.collect();
+      }
+    }
+    push(frame) {
+      if (this.stopped || this.intent && frame.time <= this.intent.frame.time) return;
+      if (this.intent && frame.time - this.intent.frame.time > GAP_SECONDS)
+        this.expire(frame.time);
+      this.intent = this.interpreter.push(frame);
+      this.events.push({ type: "expression", time: frame.time, expression: plantExpression(this.intent, this.config) });
+      this.advance(frame.time);
+      if (this.intent.greeting) {
+        this.rules.greet(frame);
+        this.collect();
+      }
+    }
+    advance(time) {
+      if (this.stopped || !this.intent || time < this.clock) return;
+      this.clock = time;
+      if (time - this.intent.frame.time > GAP_SECONDS) {
+        this.expire(time);
+        return;
+      }
+      this.rules.tick(this.intent, time);
+      this.collect();
+    }
+    expire(time) {
+      this.rules.finish(time);
+      this.collect();
+      this.rules = createRules(this.config);
+      this.interpreter = new PlantInterpreter();
+      this.intent = null;
+    }
+    finish(time) {
+      this.stopped = true;
+      this.rules.finish(time);
+      this.collect();
+    }
+    audition(target, time) {
+      var _a;
+      const slot = soundSlots(this.config).find((s) => s.id === target);
+      this.rules.audition((_a = slot == null ? void 0 : slot.kind) != null ? _a : target, time, slot == null ? void 0 : slot.id);
+      this.collect();
+    }
+    drain() {
+      const result = this.events;
+      this.events = [];
+      return result;
+    }
+    get latest() {
+      var _a, _b;
+      return (_b = (_a = this.intent) == null ? void 0 : _a.frame) != null ? _b : null;
+    }
+  };
+  var noteName = (midi) => ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"][(Math.round(midi) % 12 + 12) % 12] + (Math.floor(midi / 12) - 1);
+
   // src/lib/sonora/synth-voices.ts
   var designs = {
+    meadow: [
+      "silk",
+      [1, 0.2, 0.075, 0.035, 0.018, 9e-3, 4e-3, 2e-3],
+      0.48,
+      0.46,
+      0,
+      [7, 12, 9],
+      4.4,
+      6.2,
+      0.34,
+      1.2,
+      0.08,
+      0.045,
+      0
+    ],
+    velvet: [
+      "silk",
+      [0.95, 0.28, 0.12, 0.055, 0.025, 0.012, 6e-3, 3e-3],
+      0.46,
+      0.5,
+      1,
+      [7, 12, 5],
+      4.8,
+      6.8,
+      0.46,
+      2,
+      0.1,
+      0.052,
+      0
+    ],
+    "prism-dust": [
+      "strings",
+      [0.72, 0.38, 0.2, 0.12, 0.065, 0.035, 0.018, 8e-3],
+      0.58,
+      0.48,
+      3,
+      [9, 7, 12],
+      3.7,
+      5.4,
+      0.58,
+      3.2,
+      0.14,
+      0.095,
+      0
+    ],
     healing: [
       "silk",
       [0.8, 0.5, 0.24, 0.12, 0.07, 0.04, 0.02, 0.01],
@@ -983,6 +2180,21 @@ var Sonora = (() => {
       0.1,
       0.25,
       0.4
+    ],
+    ballena: [
+      "reed",
+      [0.92, 0.08, 0.72, 0.04, 0.38, 0.025, 0.16, 0.015],
+      0.34,
+      0.52,
+      1,
+      [12, 7, 5],
+      5.2,
+      6.5,
+      0.72,
+      5.5,
+      0.2,
+      0.055,
+      0
     ]
   };
   var SYNTH_VOICES = Object.fromEntries(
@@ -1029,696 +2241,6 @@ var Sonora = (() => {
     return (_a = SYNTH_VOICES[id]) != null ? _a : SYNTH_VOICES.healing;
   };
 
-  // src/lib/sonora/rules/organic.ts
-  var OrganicRules = class {
-    constructor(config = defaultConfiguration()) {
-      __publicField(this, "config");
-      __publicField(this, "events", []);
-      __publicField(this, "previous", null);
-      __publicField(this, "serial", 0);
-      __publicField(this, "lastLead", -Infinity);
-      __publicField(this, "lastSynth", -Infinity);
-      __publicField(this, "synthPitch", -1);
-      __publicField(this, "synthRegister", null);
-      __publicField(this, "lastPitch", -1);
-      __publicField(this, "stopped", false);
-      __publicField(this, "phrase", 0);
-      __publicField(this, "nextLead", -Infinity);
-      __publicField(this, "nextSynth", -Infinity);
-      __publicField(this, "motif", []);
-      __publicField(this, "rhythm", []);
-      __publicField(this, "anchor", 0);
-      __publicField(this, "synthStep", 0);
-      this.config = sanitizeConfiguration(config);
-    }
-    configure(config, time) {
-      const next = sanitizeConfiguration(config);
-      for (const lane of ["synth", "instrument"]) {
-        if (JSON.stringify(next[lane]) === JSON.stringify(this.config[lane])) continue;
-        this.events.push({ type: "release", time, lane });
-        if (lane === "synth") this.resetSynth();
-        else {
-          this.nextLead = -Infinity;
-          this.lastPitch = -1;
-        }
-      }
-      this.config = next;
-    }
-    resetSynth() {
-      this.lastSynth = -Infinity;
-      this.synthPitch = -1;
-      this.synthRegister = null;
-      this.nextSynth = -Infinity;
-      this.synthStep = 0;
-    }
-    emit(f, lane, midi, duration, velocity, pan, delay = 0, fade) {
-      const patch = lane === "greeting" ? greetingPatch(this.config.instrument) : this.config[lane];
-      const note = {
-        id: this.serial++,
-        time: f.time + delay,
-        sourceTime: f.time,
-        source: f.seq,
-        midi,
-        velocity: clamp(velocity, 0, 127),
-        duration,
-        lane,
-        patch,
-        color: clamp(Math.log1p(f.roughness * 140) / 3),
-        pan,
-        fade
-      };
-      this.events.push({ type: "note", time: note.time, note });
-      return note;
-    }
-    tick(intent, time) {
-      var _a, _b;
-      if (this.stopped || time < this.nextLead && time < this.nextSynth) return;
-      const { character, motion, detail, profileScale, shape, contour, position } = intent;
-      const f = __spreadProps(__spreadValues({}, intent.frame), { time });
-      const leadPool = notePool(this.config.instrument);
-      if (!this.motif.length) {
-        this.anchor = position;
-        this.motif = [0, 2, 5, 8].map((i) => Math.round(Math.tanh(f.profile[i] / profileScale) * (2 + character.texture * 3) + Math.sin((i + 1) * (0.5 + character.pace * 2)) * character.variation * 2));
-        this.rhythm = [1, 3, 6, 9].map((i) => [0.75, 1, 1.5, 2][Math.min(3, Math.floor(
-          (0.5 + 0.5 * Math.tanh(f.profile[i] / profileScale)) * 4
-        ))]);
-      }
-      const step = this.phrase % 4;
-      const home = Math.round(this.anchor * (leadPool.length - 1));
-      const liveStep = Math.round(Math.tanh(
-        (f.profile[(step * 2 + 3) % 10] - f.profile[(step * 2 + 7) % 10]) / profileScale
-      ) * 2);
-      let index = Math.round(clamp(home + this.motif[step] + liveStep + Math.round(contour * 0.7), 0, leadPool.length - 1));
-      if (leadPool[index] === this.lastPitch && step !== 0 && leadPool.length > 1)
-        index = Math.round(clamp(index + (liveStep < 0 ? -1 : index < leadPool.length - 1 ? 1 : -1), 0, leadPool.length - 1));
-      const previousIndex = this.lastPitch < 0 ? index : leadPool.indexOf(this.lastPitch);
-      const lead = leadPool[Math.round(clamp(
-        index,
-        Math.max(0, previousIndex - 3),
-        Math.min(leadPool.length - 1, previousIndex + 3)
-      ))];
-      const velocity = (p) => clamp(
-        p.velocity.center + p.velocity.range * 0.35 * Math.tanh(motion + detail + contour * 0.6 - 0.35),
-        0,
-        127
-      );
-      const beat = (0.38 + (1 - character.pace) * 0.85 + (1 - character.variation) * 0.2) / this.config.speed;
-      if (f.time >= this.nextLead) {
-        const closing = step === 3;
-        const spacing = beat * this.rhythm[step];
-        const duration = clamp(
-          spacing * (closing ? 1.3 : 0.55 + 0.5 * (0.5 + 0.5 * Math.tanh(f.profile[(step * 2 + 1) % 10] / profileScale))),
-          0.3 / this.config.speed,
-          4.5 / this.config.speed
-        );
-        const note = this.emit(
-          f,
-          "instrument",
-          lead,
-          duration,
-          velocity(this.config.instrument) * (closing ? 0.8 : step === 0 ? 1 : 0.9),
-          -0.12 + Math.tanh(f.slope / profileScale) * 0.12
-        );
-        note.reason = closing ? "phrase-resolution" : step === 0 ? "signal-motif" : "motif-contour";
-        note.phraseStep = step;
-        const rest = closing ? beat * (0.65 + (1 - character.variation) * 1.6) : step === 1 && liveStep < 0 ? beat * (1 - character.pace) : 0;
-        this.nextLead = f.time + (closing ? Math.max(spacing, duration) : spacing) + rest;
-        this.phrase++;
-        if (closing) {
-          const cell = Math.floor(this.phrase / 4) % 3;
-          const measured = Math.round(Math.tanh(f.profile[cell * 3] / profileScale) * 3);
-          this.motif[cell] += Math.sign(measured - this.motif[cell]);
-          this.rhythm[cell] = [0.75, 1, 1.5, 2][Math.min(3, Math.floor(
-            (0.5 + 0.5 * Math.tanh(f.profile[cell * 3 + 1] / profileScale)) * 4
-          ))];
-          this.anchor += (position - this.anchor) * 0.25;
-        }
-        this.lastLead = f.time;
-        this.lastPitch = lead;
-      }
-      const voice = synthVoice(this.config.synth.preset);
-      const pool = notePool(this.config.synth);
-      const trace = Math.tanh(
-        f.profile.reduce(
-          (sum, x, i) => sum + x * Math.sin((i + 1) * (voice.trace + 1) * Math.PI / 11),
-          0
-        ) / (profileScale * 3)
-      );
-      const rawRegister = clamp(
-        0.02 + voice.register * 0.2 + character.level * 0.3 + (shape - 0.5) * voice.range * 0.18 + trace * (0.06 + character.variation * 0.12) + contour * 0.06,
-        0.12,
-        0.72
-      );
-      const stability = this.config.synthMotion.stability / 100;
-      const registerSlew = 0.22 - stability * 0.16;
-      if (f.time >= this.nextSynth) this.synthRegister = this.synthRegister === null ? rawRegister : this.synthRegister + (rawRegister - this.synthRegister) * registerSlew;
-      const scan = (this.synthStep * 3 + voice.trace) % 10;
-      const signature = Math.tanh(f.profile[scan] / profileScale);
-      const target = pool[0] + ((_a = this.synthRegister) != null ? _a : rawRegister) * (pool[pool.length - 1] - pool[0]) + signature * (3 + character.texture * 5) + (character.pace - 0.5) * 7 + Math.sin(f.center * 0.73) * 3;
-      const desiredIndex = pool.reduce(
-        (best, n, i) => Math.abs(n - target) < Math.abs(pool[best] - target) ? i : best,
-        0
-      );
-      const period = (1.8 + stability * 1.8 + (1 - character.pace) * 2 + (1 - character.variation)) * (0.78 + voice.pace * 0.08) / this.config.speed;
-      if (f.time >= this.nextSynth) {
-        const currentIndex = this.synthPitch < 0 ? desiredIndex : pool.reduce(
-          (best, n, i) => Math.abs(n - this.synthPitch) < Math.abs(pool[best] - this.synthPitch) ? i : best,
-          0
-        );
-        const rootIndex = Math.round(clamp(desiredIndex, currentIndex - 2, currentIndex + 2));
-        const root = pool[rootIndex];
-        const interval = [7, 4, 3, 5][Math.min(3, Math.floor(
-          (0.5 + 0.5 * Math.tanh(f.profile[(scan + 4) % 10] / profileScale)) * 4
-        ))];
-        const companionTarget = root + interval <= pool[pool.length - 1] ? root + interval : root - interval;
-        const companion = pool.reduce(
-          (best, n) => n !== root && Math.abs(n - companionTarget) < Math.abs(best - companionTarget) ? n : best,
-          (_b = pool.find((n) => n !== root)) != null ? _b : root
-        );
-        const fade = Math.min(period * 0.65, this.config.synthMotion.transition / this.config.speed);
-        const synthVelocity = velocity(this.config.synth);
-        const upper = this.synthStep % 2 === 1;
-        const note = this.emit(
-          f,
-          "synth",
-          upper ? companion : root,
-          period * 1.25,
-          synthVelocity * (upper ? 0.34 : 0.5),
-          upper ? 0.22 : -0.22,
-          0,
-          fade
-        );
-        note.reason = upper ? "signal-upper-layer" : "signal-root-layer";
-        note.phraseStep = this.synthStep % 4;
-        this.synthPitch = root;
-        this.lastSynth = f.time;
-        this.nextSynth = f.time + period;
-        this.synthStep++;
-      }
-      this.previous = f;
-    }
-    greet(f, lead = this.lastPitch > 0 ? this.lastPitch : 60) {
-      const hits = preset(this.config.instrument.preset).percussion;
-      if (hits) {
-        [0, 0.12, 0.27].forEach((delay, j) => {
-          const note = this.emit(
-            f,
-            "greeting",
-            hits[(j + Math.abs(f.seq)) % hits.length],
-            0.65,
-            [72, 62, 66][j],
-            (j - 1) * 0.2,
-            delay
-          );
-          note.reason = "percussion-greeting";
-        });
-        return;
-      }
-      const pool = notePool(__spreadProps(__spreadValues({}, this.config.instrument), { octaves: [3, 7] })).sort((a, b) => a - b);
-      if (!pool.length) return;
-      const target = clamp(lead + 5, 60, 78);
-      const root = pool.reduce((a, b) => Math.abs(b - target) < Math.abs(a - target) ? b : a);
-      const upper = pool.filter((n) => n > root && n <= root + 24);
-      const tension = (interval) => [1, 2, 6, 10, 11].includes(interval % 12) ? 12 : 0;
-      let chord = [root, root + 12, root + 24], best = Infinity;
-      for (let i = 0; i < upper.length; i++) {
-        for (let j = i + 1; j < upper.length; j++) {
-          const a = upper[i] - root, b = upper[j] - root;
-          const score = Math.abs(a - 4) + Math.abs(b - 7) + tension(a) + tension(b) + tension(b - a);
-          if (score < best) {
-            best = score;
-            chord = [root, upper[i], upper[j]];
-          }
-        }
-      }
-      chord.forEach((midi, j) => {
-        const note = this.emit(
-          f,
-          "greeting",
-          midi,
-          0.7 + j * 0.075,
-          [72, 65, 60][j],
-          [-0.2, 0, 0.2][j],
-          [0, 0.12, 0.27][j]
-        );
-        note.reason = "instrument-greeting";
-      });
-    }
-    /* Alternative wind-chime greeting, retained for future comparison.
-       Requires the koshi patch, sample bypass and the commented DSP chime override.
-    private greetChimes(f: Frame, lead: number) {
-      const tubes = [84, 86, 88, 91, 93];
-      const start = Math.abs(Math.round(f.center)) % tubes.length;
-      // A small gust: uneven, overlapping strikes rather than a played melody.
-      const times = [0, 0.09, 0.21, 0.27, 0.43, 0.58];
-      const strikes = [0, 2, 4, 1, 3, 2];
-      const velocities = [54, 40, 47, 32, 37, 25];
-      for (let j = 0; j < times.length; j++) {
-        const note = this.emit(f, 'greeting', tubes[(start + strikes[j]) % tubes.length],
-          0.95, velocities[j], Math.sin(j * 2.1) * 0.45, times[j]);
-        note.reason = 'wind-chime';
-      }
-    }
-    */
-    advance(time) {
-      if (this.previous && time - this.previous.time > GAP_SECONDS) {
-        this.events.push({ type: "release", time });
-        this.previous = null;
-      }
-    }
-    finish(time) {
-      this.stopped = true;
-      this.events.push({ type: "release", time });
-    }
-    audition(lane, time) {
-      var _a;
-      const f = {
-        time,
-        seq: -1,
-        center: 14,
-        level: 2e4,
-        spread: 0.02,
-        roughness: 0.01,
-        slope: 0,
-        spectrum: Array(9).fill(0.01),
-        profile: Array(10).fill(0),
-        cadence: 0
-      };
-      const patch = lane === "synth" ? this.config.synth : this.config.instrument, pool = notePool(
-        lane === "greeting" ? __spreadProps(__spreadValues({}, patch), { octaves: [4, 5] }) : patch
-      ), at = Math.floor(pool.length * 0.55);
-      if (lane === "greeting") {
-        this.greet(f, pool[at] - 7);
-        return;
-      }
-      if (lane === "synth") {
-        const root = pool[at];
-        const companion = pool.reduce(
-          (best, n) => n !== root && Math.abs(n - (root + 7)) < Math.abs(best - (root + 7)) ? n : best,
-          (_a = pool.find((n) => n !== root)) != null ? _a : root
-        );
-        const fade = Math.min(2.4, this.config.synthMotion.transition);
-        this.emit(f, lane, root, 4.8, 78, -0.16, 0, fade);
-        if (companion !== root) this.emit(f, lane, companion, 4.8, 46, 0.16, 0, fade);
-        return;
-      }
-      for (let j = 0; j < 3; j++)
-        this.emit(
-          f,
-          lane,
-          pool[Math.min(pool.length - 1, at + j * 2)],
-          2.8,
-          95,
-          (j - 1) * 0.2,
-          j * 0.45
-        );
-    }
-    drain() {
-      const result = this.events;
-      this.events = [];
-      return result;
-    }
-    get latest() {
-      return this.previous;
-    }
-  };
-
-  // src/lib/sonora/rules/ensemble.ts
-  var wrap = (n, size) => (n % size + size) % size;
-  var pulse = (step, count, length, rotation = 0) => wrap((step + rotation) * count, length) < count;
-  var closest = (pool, target) => pool.reduce((a, b) => Math.abs(b - target) < Math.abs(a - target) ? b : a);
-  function voicing(pool, root, count, previous) {
-    var _a;
-    const notes = [root];
-    const consonant = (a, b) => [0, 3, 4, 5, 7, 8, 9].includes(wrap(a - b, 12));
-    for (let voice = 1; voice < count; voice++) {
-      const candidates = pool.filter((n) => !notes.includes(n) && Math.abs(n - root) <= 16 && notes.every((other) => Math.abs(n - other) >= 3 && consonant(n, other)));
-      if (!candidates.length) break;
-      const target = (_a = previous[voice]) != null ? _a : root + (voice === 1 ? 7 : 4);
-      notes.push(closest(candidates, target));
-    }
-    return notes;
-  }
-  var EnsembleRules = class {
-    constructor(config, style) {
-      __publicField(this, "events", []);
-      __publicField(this, "next", /* @__PURE__ */ new Map());
-      __publicField(this, "steps", /* @__PURE__ */ new Map());
-      __publicField(this, "phrases", /* @__PURE__ */ new Map());
-      __publicField(this, "harmony", /* @__PURE__ */ new Map());
-      __publicField(this, "previousPitch", /* @__PURE__ */ new Map());
-      __publicField(this, "stopped", false);
-      __publicField(this, "config");
-      __publicField(this, "style");
-      this.config = config;
-      this.style = style;
-    }
-    configure(config, time) {
-      for (const slot of soundSlots(config)) {
-        const old = soundSlots(this.config).find((s) => s.id === slot.id);
-        if (JSON.stringify(old == null ? void 0 : old.patch) !== JSON.stringify(slot.patch)) {
-          this.events.push({ type: "release", time, slot: slot.id });
-          this.next.delete(slot.id);
-          this.phrases.delete(slot.id);
-          this.harmony.delete(slot.id);
-          this.previousPitch.delete(slot.id);
-          this.steps.delete(slot.id);
-        }
-      }
-      this.config = config;
-    }
-    note(slot, f, time, midi, duration, velocity, pan, fade, greeting = false, reason, articulation) {
-      var _a, _b, _c;
-      const patch = articulation === void 0 || !slot.patch.envelope.on ? slot.patch : __spreadProps(__spreadValues({}, slot.patch), {
-        envelope: __spreadProps(__spreadValues({}, slot.patch.envelope), {
-          attack: slot.patch.envelope.attack * articulation,
-          release: Math.min(slot.patch.envelope.release, 12 + articulation * 20)
-        })
-      });
-      this.events.push({ type: "note", time, note: {
-        id: 0,
-        time,
-        sourceTime: f.time,
-        source: f.seq,
-        midi,
-        duration,
-        velocity: clamp(velocity, 0, 127),
-        pan: clamp(pan, -1, 1),
-        fade,
-        color: 0.4,
-        lane: greeting ? "greeting" : slot.kind,
-        slot: greeting ? "$greeting" : slot.id,
-        patch: greeting ? greetingPatch(slot.patch) : patch,
-        reason: greeting ? "mood-greeting" : `${this.style}-${reason != null ? reason : slot.id}`,
-        phraseStep: ((_a = this.steps.get(slot.id)) != null ? _a : 0) % ((_c = (_b = this.phrases.get(slot.id)) == null ? void 0 : _b.length) != null ? _c : 8)
-      } });
-    }
-    phrase(slot, intent, pool) {
-      var _a, _b;
-      const { character: c, fingerprint: f } = intent;
-      const old = this.phrases.get(slot.id);
-      const generation = ((_a = old == null ? void 0 : old.generation) != null ? _a : -1) + 1;
-      const response = (_b = this.config.plantResponse) != null ? _b : 1;
-      const activity = clamp(c.variation * 0.4 + (1 - f.cadence) * 0.4 + f.entropy * 0.2);
-      const length = f.asymmetry < -0.25 ? 12 : 16;
-      const home = Math.round(clamp(0.5 + (c.level - 0.5) * 0.7 * response + (intent.shape - 0.5) * 0.25 * response, 0.12, 0.83) * (pool.length - 1));
-      const spread = 1 + Math.round(c.texture * 3 + f.entropy * 2);
-      const measured = intent.frame.profile.filter((_, i) => i % 2 === generation % 2).map((x) => Math.round(Math.tanh(x / intent.profileScale) * spread));
-      const motif = !old || f.novelty > 0.5 ? measured : old.motif.map((n, i) => i < 2 ? n : measured[i]);
-      const result = {
-        length,
-        home,
-        motif,
-        generation,
-        activity,
-        pulses: Math.round(3 + activity * (length / 2 - 3)),
-        rotation: Math.round((f.asymmetry + 1) * 3 + intent.shape * 4),
-        swing: f.irregularity * 0.2,
-        beat: (0.26 + f.cadence * 0.27) / this.config.speed
-      };
-      this.phrases.set(slot.id, result);
-      return result;
-    }
-    tick(intent, time) {
-      var _a, _b, _c, _d;
-      if (this.stopped) return;
-      const { character: c, frame, fingerprint: f } = intent;
-      for (const [i, slot] of soundSlots(this.config).entries()) {
-        if (time < ((_a = this.next.get(slot.id)) != null ? _a : -Infinity)) continue;
-        const step = (_b = this.steps.get(slot.id)) != null ? _b : 0, pool = notePool(slot.patch);
-        if (!pool.length) continue;
-        let phrase = this.phrases.get(slot.id);
-        if (!phrase || step % (slot.kind === "synth" ? 4 : phrase.length) === 0)
-          phrase = this.phrase(slot, intent, pool);
-        const p = phrase, cell = step % p.length;
-        const beat = p.beat;
-        const sample = Math.tanh(frame.profile[(cell + i * 3) % frame.profile.length] / intent.profileScale);
-        const velocity = clamp(slot.patch.velocity.center + slot.patch.velocity.range * ((p.activity - 0.5) * 0.45 + sample * 0.2), 18, 120);
-        if (slot.kind === "synth") {
-          const motion = (_c = slot.motion) != null ? _c : this.config.synthMotion;
-          const cycle = step % 4;
-          const direction = intent.contour < 0 ? -1 : 1;
-          const degree = cycle === 3 ? 0 : p.motif[cycle] + direction * cycle;
-          const root = pool[Math.round(clamp(p.home + degree, 0, pool.length - 1))];
-          const period = beat * (this.style === "mist" ? 9 + motion.stability / 25 : 12);
-          const previous = (_d = this.harmony.get(slot.id)) != null ? _d : [];
-          const pitches = voicing(pool, root, this.style === "mist" && f.entropy > 0.45 ? 3 : 2, previous);
-          this.harmony.set(slot.id, pitches);
-          const breathing = cycle === 3 ? 0.62 : 0.92;
-          pitches.forEach((midi, j) => {
-            const delay = j * beat * (0.35 + c.texture * 0.7);
-            this.note(
-              slot,
-              frame,
-              time + delay,
-              midi,
-              period * breathing - delay,
-              velocity * (j ? 0.3 : 0.43),
-              (j - (pitches.length - 1) / 2) * 0.38,
-              Math.min(period * 0.25, motion.transition),
-              false,
-              cycle === 3 ? "harmonic-return" : "voiced-cloud"
-            );
-          });
-          if (this.style === "mist" && cycle === 1 && p.activity > 0.4) {
-            const midi = closest(pool, root + (f.asymmetry > 0 ? 12 : 7));
-            this.note(
-              slot,
-              frame,
-              time + period * 0.6,
-              midi,
-              beat * 1.8,
-              velocity * 0.28,
-              sample * 0.4,
-              beat * 0.45,
-              false,
-              "cloud-answer"
-            );
-          }
-          this.next.set(slot.id, time + period);
-        } else if (preset(slot.patch.preset).family === "percussion") {
-          const hit = pulse(cell, p.pulses, p.length, p.rotation);
-          const ghost = !hit && p.activity > 0.55 && pulse(cell, 2, 7, p.generation % 7);
-          const closingRest = cell >= p.length - 2 && p.generation % 2 === 1;
-          if ((hit || ghost) && !closingRest) {
-            const position = Math.round(clamp(p.home + p.motif[cell % p.motif.length] + sample * 2, 0, pool.length - 1));
-            this.note(
-              slot,
-              frame,
-              time,
-              pool[position],
-              beat * (ghost ? 0.35 : 0.8),
-              velocity * (ghost ? 0.4 : cell % 4 === 0 ? 1 : 0.77),
-              -0.25 + sample * 0.12,
-              void 0,
-              false,
-              ghost ? "cross-rhythm-ghost" : "signal-pulse",
-              0.25
-            );
-          }
-          this.next.set(slot.id, time + beat * (1 + (cell % 2 ? -p.swing : p.swing)));
-        } else {
-          const answer = cell >= p.length / 2;
-          const count = Math.round(3 + p.activity * 3);
-          const onset = pulse(cell, count, p.length - 2, p.rotation + 2);
-          if (cell < p.length - 2 && onset) {
-            const motifStep = wrap(answer ? p.motif.length - 1 - cell : cell, p.motif.length);
-            const inversion = answer && intent.contour < 0 ? -1 : 1;
-            const degree = cell >= p.length - 4 ? 0 : p.motif[motifStep] * inversion;
-            const target = pool[Math.round(clamp(p.home + degree, 0, pool.length - 1))];
-            const previous = this.previousPitch.get(slot.id);
-            const nearby = previous === void 0 ? pool : pool.filter((n) => Math.abs(n - previous) <= 7);
-            const midi = closest(nearby.length ? nearby : pool, target);
-            this.previousPitch.set(slot.id, midi);
-            let space = 1;
-            while (cell + space < p.length - 2 && !pulse(cell + space, count, p.length - 2, p.rotation + 2)) space++;
-            const legato = sample > 0 || cell >= p.length - 4;
-            const duration = beat * Math.min(space * (legato ? 0.86 : 0.48), 3);
-            this.note(
-              slot,
-              frame,
-              time,
-              midi,
-              duration,
-              velocity * (answer ? 0.86 : 0.96),
-              0.22 + f.asymmetry * 0.12,
-              void 0,
-              false,
-              cell >= p.length - 4 ? "motif-resolution" : answer ? "motif-answer" : "motif-question",
-              legato ? 0.8 : 0.3
-            );
-            if (f.novelty > 0.55 && space >= 2 && cell % 4 === 0) {
-              const neighbor = pool[Math.round(clamp(pool.indexOf(midi) + (intent.contour < 0 ? -1 : 1), 0, pool.length - 1))];
-              if (neighbor !== midi) this.note(
-                slot,
-                frame,
-                time + beat * 0.65,
-                neighbor,
-                beat * 0.4,
-                velocity * 0.48,
-                0.3,
-                void 0,
-                false,
-                "signal-ornament",
-                0.15
-              );
-            }
-          }
-          this.next.set(slot.id, time + beat * (1 + (cell % 2 ? -p.swing : p.swing)));
-        }
-        this.steps.set(slot.id, step + 1);
-      }
-    }
-    greet(frame) {
-      var _a, _b;
-      const slots = soundSlots(this.config);
-      const slot = (_b = (_a = slots.find((s) => preset(s.patch.preset).family === "wind")) != null ? _a : slots.find((s) => s.kind === "instrument")) != null ? _b : slots[0];
-      const pool = notePool(slot.patch), at = Math.floor(pool.length * 0.6);
-      [0, 0.14, 0.3].forEach((delay, j) => this.note(
-        slot,
-        frame,
-        frame.time + delay,
-        pool[Math.min(pool.length - 1, at + j * 2)],
-        0.8,
-        65 - j * 7,
-        (j - 1) * 0.2,
-        void 0,
-        true
-      ));
-    }
-    audition(lane, time, slotId) {
-      const frame = {
-        time,
-        seq: -1,
-        center: 14,
-        level: 0,
-        spread: 0,
-        roughness: 0,
-        slope: 0,
-        spectrum: Array(9).fill(0),
-        profile: Array(10).fill(0),
-        cadence: 0
-      };
-      if (lane === "greeting") {
-        this.greet(frame);
-        return;
-      }
-      const slot = soundSlots(this.config).find((s) => slotId ? s.id === slotId : s.kind === lane);
-      if (!slot) return;
-      const pool = notePool(slot.patch);
-      this.note(slot, frame, time, pool[Math.floor(pool.length * 0.55)], lane === "synth" ? 3 : 1, 72, 0, lane === "synth" ? 1 : void 0);
-    }
-    finish(time) {
-      this.stopped = true;
-      this.events.push({ type: "release", time });
-    }
-    drain() {
-      const events = this.events;
-      this.events = [];
-      return events;
-    }
-  };
-
-  // src/lib/sonora/rules/index.ts
-  var factories = {
-    organic: (config) => new OrganicRules(config),
-    mist: (config) => new EnsembleRules(config, "mist"),
-    grove: (config) => new EnsembleRules(config, "grove")
-  };
-  var createRules = (config) => factories[mood(config.mood).rules](config);
-
-  // src/lib/sonora/composer.ts
-  var Composer = class {
-    constructor(config = defaultConfiguration()) {
-      __publicField(this, "config");
-      __publicField(this, "interpreter", new PlantInterpreter());
-      __publicField(this, "rules");
-      __publicField(this, "intent", null);
-      __publicField(this, "events", []);
-      __publicField(this, "stopped", false);
-      __publicField(this, "clock", -Infinity);
-      __publicField(this, "serial", 0);
-      this.config = sanitizeConfiguration(config);
-      this.rules = createRules(this.config);
-    }
-    collect() {
-      var _a, _b, _c, _d;
-      for (const event of this.rules.drain()) {
-        if (event.type === "note") {
-          event.note.id = this.serial++;
-          (_c = (_b = event.note).slot) != null ? _c : _b.slot = event.note.lane === "greeting" ? "$greeting" : (_a = soundSlots(this.config).find((s) => s.kind === event.note.lane)) == null ? void 0 : _a.id;
-        }
-        if (event.type === "release" && event.lane && !event.slot)
-          event.slot = event.lane === "greeting" ? "$greeting" : (_d = soundSlots(this.config).find((s) => s.kind === event.lane)) == null ? void 0 : _d.id;
-        this.events.push(event);
-      }
-    }
-    configure(config, time) {
-      const next = sanitizeConfiguration(config);
-      if (next.mood !== this.config.mood) {
-        this.rules.finish(time);
-        this.collect();
-        this.rules = createRules(next);
-      } else {
-        this.rules.configure(next, time);
-        this.collect();
-      }
-      this.config = next;
-      if (this.intent)
-        this.events.push({ type: "expression", time, expression: plantExpression(this.intent, next) });
-    }
-    push(frame) {
-      if (this.stopped || this.intent && frame.time <= this.intent.frame.time) return;
-      if (this.intent && frame.time - this.intent.frame.time > GAP_SECONDS)
-        this.expire(frame.time);
-      this.intent = this.interpreter.push(frame);
-      this.events.push({ type: "expression", time: frame.time, expression: plantExpression(this.intent, this.config) });
-      this.advance(frame.time);
-      if (this.intent.greeting) {
-        this.rules.greet(frame);
-        this.collect();
-      }
-    }
-    advance(time) {
-      if (this.stopped || !this.intent || time < this.clock) return;
-      this.clock = time;
-      if (time - this.intent.frame.time > GAP_SECONDS) {
-        this.expire(time);
-        return;
-      }
-      this.rules.tick(this.intent, time);
-      this.collect();
-    }
-    expire(time) {
-      this.rules.finish(time);
-      this.collect();
-      this.rules = createRules(this.config);
-      this.interpreter = new PlantInterpreter();
-      this.intent = null;
-    }
-    finish(time) {
-      this.stopped = true;
-      this.rules.finish(time);
-      this.collect();
-    }
-    audition(target, time) {
-      var _a;
-      const slot = soundSlots(this.config).find((s) => s.id === target);
-      this.rules.audition((_a = slot == null ? void 0 : slot.kind) != null ? _a : target, time, slot == null ? void 0 : slot.id);
-      this.collect();
-    }
-    drain() {
-      const result = this.events;
-      this.events = [];
-      return result;
-    }
-    get latest() {
-      var _a, _b;
-      return (_b = (_a = this.intent) == null ? void 0 : _a.frame) != null ? _b : null;
-    }
-  };
-  var noteName = (midi) => ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"][(Math.round(midi) % 12 + 12) % 12] + (Math.floor(midi / 12) - 1);
-
   // src/lib/sonora/dsp.ts
   var RELEASE_SECONDS = 6;
   var TAU = Math.PI * 2;
@@ -1735,6 +2257,15 @@ var Sonora = (() => {
     const v = clamp(x);
     return v * v * (3 - 2 * v);
   };
+  var copyBusPatch = (patch) => __spreadProps(__spreadValues({}, patch), {
+    delay: __spreadValues({}, patch.delay),
+    reverb: __spreadValues({}, patch.reverb),
+    chorus: __spreadValues({}, patch.chorus),
+    envelope: __spreadValues({}, patch.envelope),
+    velocity: __spreadValues({}, patch.velocity),
+    notes: [...patch.notes],
+    octaves: [...patch.octaves]
+  });
   var Effects = class {
     constructor(rate) {
       __publicField(this, "dl");
@@ -1742,14 +2273,16 @@ var Sonora = (() => {
       __publicField(this, "at", 0);
       __publicField(this, "chorusPhase", 0);
       __publicField(this, "lines");
-      __publicField(this, "indices", new Int32Array(4));
-      __publicField(this, "damp", new Float64Array(4));
+      __publicField(this, "indices", new Int32Array(8));
+      __publicField(this, "damp", new Float64Array(8));
+      __publicField(this, "reverbLowL", 0);
+      __publicField(this, "reverbLowR", 0);
       __publicField(this, "rate");
       __publicField(this, "output", [0, 0]);
       this.rate = rate;
       this.dl = new Float32Array(Math.ceil(rate * 1.3));
       this.dr = new Float32Array(this.dl.length);
-      this.lines = [0.097, 0.131, 0.173, 0.211].map(
+      this.lines = [0.071, 0.089, 0.113, 0.131, 0.149, 0.173, 0.197, 0.227].map(
         (x) => new Float32Array(Math.ceil(rate * x))
       );
     }
@@ -1780,17 +2313,22 @@ var Sonora = (() => {
         l = l * (1 - wet) + echoL * wet;
         r = r * (1 - wet) + echoR * wet;
       }
+      this.reverbLowL += (l - this.reverbLowL) * 0.018;
+      this.reverbLowR += (r - this.reverbLowR) * 0.018;
+      const reverbInL = l - this.reverbLowL * 0.82;
+      const reverbInR = r - this.reverbLowR * 0.82;
+      const damping = 0.14 + (1 - rv.amount / 100) * 0.12;
       let sum = 0;
-      for (let j = 0; j < 4; j++) {
-        this.damp[j] += (this.lines[j][this.indices[j]] - this.damp[j]) * 0.3;
+      for (let j = 0; j < 8; j++) {
+        this.damp[j] += (this.lines[j][this.indices[j]] - this.damp[j]) * damping;
         sum += this.damp[j];
       }
-      const feedback = 0.48 + rv.amount / 100 * 0.4;
-      for (let j = 0; j < 4; j++) {
-        this.lines[j][this.indices[j]] = (j % 2 ? r : l) * 0.3 + (sum * 0.5 - this.damp[j]) * feedback;
+      const feedback = 0.54 + rv.amount / 100 * 0.35;
+      for (let j = 0; j < 8; j++) {
+        this.lines[j][this.indices[j]] = (j % 2 ? reverbInR : reverbInL) * 0.22 + (sum * 0.25 - this.damp[j]) * feedback;
         this.indices[j] = (this.indices[j] + 1) % this.lines[j].length;
       }
-      const earlyL = this.tap(this.dl, 0.023), earlyR = this.tap(this.dr, 0.031), wetL = earlyL * 0.78 + (this.damp[0] + this.damp[1] - this.damp[2] - this.damp[3]) * 0.22, wetR = earlyR * 0.78 + (this.damp[0] - this.damp[1] + this.damp[2] - this.damp[3]) * 0.22;
+      const earlyL = this.tap(this.dl, 0.013), earlyR = this.tap(this.dr, 0.019), wetL = earlyL * 0.08 + (this.damp[0] + this.damp[1] - this.damp[2] + this.damp[3] - this.damp[4] + this.damp[5] - this.damp[6] + this.damp[7]) * 0.18, wetR = earlyR * 0.08 + (this.damp[0] - this.damp[1] + this.damp[2] + this.damp[3] - this.damp[4] - this.damp[5] + this.damp[6] - this.damp[7]) * 0.18;
       this.at = (this.at + 1) % this.dl.length;
       if (rv.on) {
         const wet = clamp((rv.wet + space) / 100);
@@ -1803,9 +2341,10 @@ var Sonora = (() => {
     }
   };
   function prepareVoice(rate, bank, n) {
+    var _a, _b, _c;
     const sampleFor = (program2, midi) => {
-      var _a, _b;
-      return (_b = (_a = program2 ? bank[program2] : void 0) == null ? void 0 : _a.reduce((a, b) => Math.abs(a.midi - midi) <= Math.abs(b.midi - midi) ? a : b)) != null ? _b : null;
+      var _a2, _b2;
+      return (_b2 = (_a2 = program2 ? bank[program2] : void 0) == null ? void 0 : _a2.reduce((a, b) => Math.abs(a.midi - midi) <= Math.abs(b.midi - midi) ? a : b)) != null ? _b2 : null;
     };
     if (n.velocity <= 0) return;
     const desc = preset(n.patch.preset), isGreeting = n.lane === "greeting";
@@ -1825,34 +2364,43 @@ var Sonora = (() => {
       0.96 / Math.sqrt(harmonics.reduce((sum, x) => sum + x * x, 0))
     );
     for (let i = 0; i < harmonics.length; i++) harmonics[i] *= normalization;
+    const position = sample ? Math.min(Math.max(0, sample.data.length - 2), Math.max(0, (_a = n.sampleOffset) != null ? _a : 0) * sample.rate) : 0;
+    const position2 = sample2 ? Math.min(Math.max(0, sample2.data.length - 2), Math.max(0, (_b = n.sampleOffset) != null ? _b : 0) * sample2.rate) : 0;
+    const increment = sample ? desc.percussion ? sample.rate / rate : sample.rate / rate * __pow(2, (n.midi - sample.midi) / 12) * n.patch.tuning / 440 : 0;
+    const increment2 = sample2 ? sample2.rate / rate * __pow(2, (n.midi - sample2.midi) / 12) * n.patch.tuning / 440 : 0;
+    const attack = isGreeting ? 3e-3 : n.lane === "synth" && n.fade ? n.patch.envelope.on ? 0.35 + n.fade * (0.35 + n.patch.envelope.attack / 100 * 0.65) : 0.35 : n.patch.envelope.on ? 4e-3 + (n.lane === "synth" ? 1.3 : 0.45) * __pow(n.patch.envelope.attack / 100, 2) : n.lane === "synth" ? 0.08 : 4e-3;
+    const release = isGreeting ? 0.4 : n.lane === "synth" && n.fade ? n.patch.envelope.on ? 0.6 + n.fade * (0.5 + n.patch.envelope.release / 100 * 0.8) : 0.8 : n.patch.envelope.on ? 0.06 + 3.5 * __pow(n.patch.envelope.release / 100, 2) : 0.35;
+    const playable = sample && increment > 0 ? (sample.data.length - position - 2) / (increment * rate) : Infinity;
+    const gate = sample && !desc.percussion ? Math.min(n.duration, Math.max(0.08, playable - release * 1.04)) : n.duration;
     return {
       note: n,
       channel: -1,
       sample,
       sample2,
-      position: 0,
-      position2: 0,
-      increment: sample ? desc.percussion ? sample.rate / rate : sample.rate / rate * __pow(2, (n.midi - sample.midi) / 12) * n.patch.tuning / 440 : 0,
-      increment2: sample2 ? sample2.rate / rate * __pow(2, (n.midi - sample2.midi) / 12) * n.patch.tuning / 440 : 0,
+      position,
+      position2,
+      increment,
+      increment2,
       phase: 0,
       phase2: 0.07,
       detuneRatio: __pow(2, design.detune / 1200),
       design,
       frequency,
+      pitchCurve: (_c = n.pitchCurve) != null ? _c : [0, 0, 0],
       filterState: 0,
       phase3: 0.37,
       attenuation: Math.min(1, Math.sqrt(880 / frequency)),
       harmonics,
       ratios: desc.model === "bowl" ? [1, 2.71, 4.05, 5.43] : [1, 2, 3, 4],
-      attack: isGreeting ? 3e-3 : n.lane === "synth" && n.fade ? n.patch.envelope.on ? 0.35 + n.fade * (0.35 + n.patch.envelope.attack / 100 * 0.65) : 0.35 : n.patch.envelope.on ? 4e-3 + (n.lane === "synth" ? 1.3 : 0.45) * __pow(n.patch.envelope.attack / 100, 2) : n.lane === "synth" ? 0.08 : 4e-3,
-      release: isGreeting ? 0.4 : n.lane === "synth" && n.fade ? n.patch.envelope.on ? 0.6 + n.fade * (0.5 + n.patch.envelope.release / 100 * 0.8) : 0.8 : n.patch.envelope.on ? 0.06 + 3.5 * __pow(n.patch.envelope.release / 100, 2) : 0.35,
-      stop: n.time + n.duration,
+      attack,
+      release,
+      stop: n.time + gate,
       forced: Infinity,
       panL: Math.sqrt((1 - clamp(n.pan, -1, 1)) / 2),
       panR: Math.sqrt((1 + clamp(n.pan, -1, 1)) / 2),
       flavor,
       model: desc.model,
-      gain: (isGreeting ? 0.2 : n.lane === "synth" ? 0.48 : 0.28) * __pow(n.velocity / 100, 1.15)
+      gain: (isGreeting ? 0.24 : n.lane === "synth" ? 0.56 : 0.46) * __pow(n.velocity / 100, 1.15)
     };
   }
   var AudioCore = class {
@@ -1877,6 +2425,11 @@ var Sonora = (() => {
       __publicField(this, "expressionBands", new Float64Array(9).fill(0.33));
       __publicField(this, "buses", {});
       __publicField(this, "channels", []);
+      __publicField(this, "levels", []);
+      __publicField(this, "targetLevels", []);
+      __publicField(this, "patches", []);
+      __publicField(this, "targetPatches", []);
+      __publicField(this, "mixSlews", new Float64Array());
       __publicField(this, "dcL", 0);
       __publicField(this, "dcR", 0);
       __publicField(this, "space", 0);
@@ -1889,13 +2442,27 @@ var Sonora = (() => {
     }
     configure(config, bank = this.bank) {
       const channels = audioChannels(config);
-      if (channels.map((c) => c.id).join("|") !== this.channels.map((c) => c.id).join("|")) {
+      const reset = channels.map((c) => c.id).join("|") !== this.channels.map((c) => c.id).join("|");
+      if (reset) {
         this.voices = [];
         this.pending = [];
         this.cancelled.clear();
         this.buses = Object.fromEntries(channels.map((c) => [c.id, new Effects(this.rate)]));
         this.duck = this.synthDuck = 1;
         this.greetingAt = this.instrumentAt = -Infinity;
+        this.levels = channels.map((channel) => channel.level);
+        this.patches = channels.map((channel) => copyBusPatch(channel.patch));
+        this.targetLevels = channels.map((channel) => channel.level);
+        this.targetPatches = channels.map((channel) => copyBusPatch(channel.patch));
+        this.mixSlews = Float64Array.from(channels, () => 1 - Math.exp(-1 / (0.12 * this.rate)));
+      } else {
+        channels.forEach((channel, index) => {
+          const previous = this.channels[index];
+          if (channel.level === previous.level && JSON.stringify([channel.patch.delay, channel.patch.reverb, channel.patch.chorus]) === JSON.stringify([previous.patch.delay, previous.patch.reverb, previous.patch.chorus])) return;
+          this.targetLevels[index] = channel.level;
+          this.targetPatches[index] = copyBusPatch(channel.patch);
+          this.mixSlews[index] = 1 - Math.exp(-1 / (0.12 * this.rate));
+        });
       }
       this.channels = channels;
       this.config = config;
@@ -1941,6 +2508,16 @@ var Sonora = (() => {
           } else if (e.type === "expression") {
             this.targetExpression = e.expression;
             expressionSlew = 1 - Math.exp(-1 / (Math.max(0.05, (_b = e.expression.smoothing) != null ? _b : 0.4) * this.rate));
+          } else if (e.type === "mix") {
+            const channel = channels.findIndex((candidate) => candidate.id === e.slot);
+            if (channel >= 0) {
+              this.targetLevels[channel] = clamp(e.mix.level);
+              const target = this.targetPatches[channel];
+              target.delay = __spreadValues({}, e.mix.delay);
+              target.reverb = __spreadValues({}, e.mix.reverb);
+              target.chorus = __spreadValues({}, e.mix.chorus);
+              this.mixSlews[channel] = 1 - Math.exp(-1 / (Math.max(0.05, e.mix.smoothing) * this.rate));
+            }
           } else {
             for (const v of this.voices)
               if (e.slot ? v.note.slot === e.slot : !e.lane || v.note.lane === e.lane) {
@@ -1986,18 +2563,21 @@ var Sonora = (() => {
                   -age * (1 + j * 0.6) / (v.model === "bowl" ? 2.8 : 1.4)
                 ) * (j ? 0.3 / (j + 1) : 1);
           } else {
-            v.phase += v.frequency / this.rate;
+            const progress = clamp(age / Math.max(1e-3, v.note.duration));
+            const curveAt = progress < 0.5 ? smooth(progress * 2) * (v.pitchCurve[1] - v.pitchCurve[0]) + v.pitchCurve[0] : smooth((progress - 0.5) * 2) * (v.pitchCurve[2] - v.pitchCurve[1]) + v.pitchCurve[1];
+            const frequency = v.frequency * __pow(2, curveAt / 12);
+            v.phase += frequency / this.rate;
             v.phase -= v.phase | 0;
             const livingDetune = 1 + Math.max(2e-3, v.detuneRatio - 1) * (0.85 + energy * 0.3);
-            v.phase2 += v.frequency * livingDetune / this.rate;
+            v.phase2 += frequency * livingDetune / this.rate;
             v.phase2 -= v.phase2 | 0;
-            v.phase3 += v.frequency / (livingDetune * this.rate);
+            v.phase3 += frequency / (livingDetune * this.rate);
             v.phase3 -= v.phase3 | 0;
             const design = v.design;
             const breathe = sin(age * design.evolution + v.note.color);
             const decay = 0.35 + 0.65 / (1 + age * design.decay);
             for (let j = 0; j < v.harmonics.length; j++) {
-              if (v.frequency * (j + 1) >= this.rate * 0.42) continue;
+              if (frequency * (j + 1) >= this.rate * 0.42) continue;
               const band = this.expressionBands[(j + design.trace) % 9];
               let weight = j ? 0.6 + brightness * 0.4 + band * 0.55 : 0.65;
               if (design.family === "glass") weight *= j ? decay : 0.8;
@@ -2015,10 +2595,10 @@ var Sonora = (() => {
               const partial = sin(v.phase * (j + 1)) * 0.4 + sin(v.phase2 * (j + 1)) * 0.3 + sin(v.phase3 * (j + 1)) * 0.3;
               value += partial * v.harmonics[j] * weight;
             }
-            value *= (0.78 + energy * 0.14 + breathe * 0.16) * Math.min(1, Math.sqrt(880 / v.frequency));
+            value *= (0.78 + energy * 0.14 + breathe * 0.16) * Math.min(1, Math.sqrt(880 / frequency));
             const cutoff = Math.min(
               this.rate * 0.18,
-              (480 + v.frequency * 0.65 + brightness * brightness * 1800 + energy * 420) * (0.82 + 0.18 * sin(age * (0.035 + design.evolution * 0.12) + v.note.color))
+              (480 + frequency * 0.65 + brightness * brightness * 1800 + energy * 420) * (0.82 + 0.18 * sin(age * (0.035 + design.evolution * 0.12) + v.note.color))
             );
             v.filterState += (value - v.filterState) * (1 - Math.exp(-TAU * cutoff / this.rate));
             value = v.filterState;
@@ -2035,19 +2615,30 @@ var Sonora = (() => {
         }
         const duckTarget = time - this.greetingAt < 0.65 && this.config.greetingLevel > 0 ? 0.85 : 1;
         this.duck += (duckTarget - this.duck) * (duckTarget < this.duck ? duckAttack : duckRelease);
-        const synthDuckTarget = time - this.instrumentAt < 0.32 && audibleInstrument ? 0.62 : 1;
+        const synthDuckTarget = time - this.instrumentAt < 0.32 && audibleInstrument ? 0.82 : 1;
         this.synthDuck += (synthDuckTarget - this.synthDuck) * (synthDuckTarget < this.synthDuck ? duckAttack : duckRelease);
         let left = 0, right = 0;
         for (let j = 0; j < channels.length; j++) {
           const channel = channels[j], kind = channel.kind;
+          const patch = this.patches[j], target = this.targetPatches[j], slew = this.mixSlews[j];
+          this.levels[j] += (this.targetLevels[j] - this.levels[j]) * slew;
+          patch.delay.on = target.delay.on;
+          patch.reverb.on = target.reverb.on;
+          patch.chorus.on = target.chorus.on;
+          patch.delay.wet += (target.delay.wet - patch.delay.wet) * slew;
+          patch.delay.rate += (target.delay.rate - patch.delay.rate) * slew;
+          patch.reverb.wet += (target.reverb.wet - patch.reverb.wet) * slew;
+          patch.reverb.amount += (target.reverb.amount - patch.reverb.amount) * slew;
+          patch.chorus.depth += (target.chorus.depth - patch.chorus.depth) * slew;
+          patch.chorus.rate += (target.chorus.rate - patch.chorus.rate) * slew;
           const [bl, br] = this.buses[channel.id].process(
             leftBus[j],
             rightBus[j],
-            channel.patch,
+            patch,
             kind === "synth" ? energy : 0,
             kind !== "greeting" ? this.space : 0
           );
-          const gain = channel.level * (kind !== "greeting" ? this.duck : 1) * (kind === "synth" ? this.synthDuck : 1);
+          const gain = this.levels[j] * (kind !== "greeting" ? this.duck : 1) * (kind === "synth" ? this.synthDuck : 1);
           left += bl * gain;
           right += br * gain;
           const peak = Math.max(Math.abs(bl * gain), Math.abs(br * gain));
@@ -2057,8 +2648,8 @@ var Sonora = (() => {
         }
         this.dcL += (left - this.dcL) * dc;
         this.dcR += (right - this.dcR) * dc;
-        l[i] = Math.tanh((left - this.dcL) * 4.125) * 0.9;
-        r[i] = Math.tanh((right - this.dcR) * 4.125) * 0.9;
+        l[i] = Math.tanh((left - this.dcL) * 5.5) * 0.94;
+        r[i] = Math.tanh((right - this.dcR) * 5.5) * 0.94;
         if (this.cursor % 128 === 0)
           this.voices = this.voices.filter(
             (v) => time < Math.min(v.stop + v.release, v.forced)
@@ -2182,10 +2773,11 @@ var Sonora = (() => {
       return !Number.isFinite(this.stoppedAt) || this.elapsed - this.stoppedAt < RELEASE_SECONDS;
     }
     get status() {
+      const slots = soundSlots(this.config);
       return __spreadProps(__spreadValues({}, this.audio.status), {
         phase: Number.isFinite(this.stoppedAt) ? "ended" : this.lastFrame === -Infinity ? "waiting" : this.elapsed - this.lastFrame > GAP_SECONDS ? "gap" : "playing",
-        synth: preset(this.config.synth.preset).name,
-        instrument: preset(this.config.instrument.preset).name,
+        synth: slots.filter((slot) => slot.kind === "synth").map((slot) => preset(slot.patch.preset).name).join(" \xB7 "),
+        instrument: slots.filter((slot) => slot.kind === "instrument").map((slot) => preset(slot.patch.preset).name).join(" \xB7 "),
         note: this.lastNote
       });
     }

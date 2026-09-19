@@ -9,16 +9,18 @@ export function plantExpression(intent: MusicalIntent, config: Configuration): E
   const { character: c, bands, frame, profileScale } = intent;
   const ranges = mood(config.mood).modulation;
   const amount = config.plantResponse ?? 1;
-  const ensemble = mood(config.mood).rules !== 'organic';
-  const brightness = ensemble ? c.level * 0.25 + intent.shape * 0.35 + intent.fingerprint.entropy * 0.4 : c.texture * 0.35 + c.level * 0.2 + c.variation * 0.25 +
-    bands.slice(4).reduce((sum, x) => sum + x, 0) * 0.08;
-  const energy = ensemble ? c.variation * 0.4 + (1 - intent.fingerprint.cadence) * 0.35 + intent.fingerprint.novelty * 0.25 : c.variation * 0.4 + c.pace * 0.3 + c.texture * 0.3;
+  const brightness = c.level * 0.16 + intent.shape * 0.2 + intent.fingerprint.entropy * 0.24 +
+    intent.history.range * 0.2 + intent.history.microChange * 0.2;
+  const energy = intent.history.volatility * 0.22 + intent.history.burst * 0.18 +
+    intent.history.microChange * 0.28 + intent.history.turn * 0.16 +
+    (1 - intent.fingerprint.cadence) * 0.08 + intent.fingerprint.novelty * 0.08;
   return {
     brightness: clamp(0.35 + clamp(brightness - 0.35, -ranges.brightness, ranges.brightness) * amount),
     energy: clamp(0.3 + clamp(energy - 0.3, -ranges.energy, ranges.energy) * amount),
     direction: Math.tanh(frame.slope / profileScale) * amount,
     bands: bands.map((x) => 0.33 + (x - 0.33) * amount),
-    space: clamp(ensemble ? 1 - intent.fingerprint.cadence - c.texture - intent.fingerprint.irregularity * 0.5 : (c.variation - 0.5) * 2, -1, 1) * ranges.space * amount,
+    space: clamp(intent.history.recurrence - intent.history.volatility * 0.55 -
+      intent.fingerprint.irregularity * 0.35, -1, 1) * ranges.space * amount,
     smoothing: ranges.smoothing,
   };
 }

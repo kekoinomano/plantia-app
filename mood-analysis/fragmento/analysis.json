@@ -1,0 +1,493 @@
+{
+  "source": "/Users/sergio/Developer/plantia-app/fragmento.mp3",
+  "mix": {
+    "file": "fragmento.mp3",
+    "duration_seconds": 29.99,
+    "rms": 0.15806247293949127,
+    "peak": 0.7231,
+    "dynamic_spread_db": 15.8,
+    "tempo_raw_bpm": 172.3,
+    "tempo_musical_bpm": 86.1,
+    "beat_count": 79,
+    "onsets_per_second": 2.4,
+    "harmonic_ratio": 0.894,
+    "spectral_centroid_hz": 711,
+    "spectral_rolloff_85_hz": 1028,
+    "spectral_flatness": 0.0003,
+    "key_candidates": [
+      {
+        "key": "C major",
+        "score": 0.834
+      },
+      {
+        "key": "C minor",
+        "score": 0.565
+      },
+      {
+        "key": "F major",
+        "score": 0.526
+      },
+      {
+        "key": "A minor",
+        "score": 0.508
+      }
+    ],
+    "dominant_pitch_classes": [
+      "C",
+      "E",
+      "F",
+      "B",
+      "G",
+      "D",
+      "C#"
+    ],
+    "pitch_range": {
+      "midi_p10_p50_p90": [
+        62.0,
+        64.2,
+        72.1
+      ],
+      "notes_p10_p50_p90": [
+        "D4",
+        "E4",
+        "C5"
+      ]
+    },
+    "stereo_side_to_mid_db": -7.1,
+    "chord_hypothesis": [
+      "C",
+      "Gsus4",
+      "C",
+      "Gsus4",
+      "C",
+      "Fsus2",
+      "F",
+      "Fsus2",
+      "Gsus4",
+      "C"
+    ]
+  },
+  "stems": [
+    {
+      "file": "bass.mp3",
+      "duration_seconds": 30.07,
+      "rms": 0.04304545000195503,
+      "peak": 0.2419,
+      "dynamic_spread_db": 38.3,
+      "tempo_raw_bpm": 161.5,
+      "tempo_musical_bpm": 80.7,
+      "beat_count": 64,
+      "onsets_per_second": 0.9,
+      "harmonic_ratio": 0.988,
+      "spectral_centroid_hz": 399,
+      "spectral_rolloff_85_hz": 722,
+      "spectral_flatness": 0.0018,
+      "key_candidates": [
+        {
+          "key": "C major",
+          "score": 0.732
+        },
+        {
+          "key": "C minor",
+          "score": 0.671
+        },
+        {
+          "key": "F major",
+          "score": 0.537
+        },
+        {
+          "key": "A minor",
+          "score": 0.426
+        }
+      ],
+      "dominant_pitch_classes": [
+        "C",
+        "F",
+        "G",
+        "B",
+        "C#",
+        "F#",
+        "Ab"
+      ],
+      "pitch_range": {
+        "midi_p10_p50_p90": [
+          35.9,
+          36.0,
+          41.0
+        ],
+        "notes_p10_p50_p90": [
+          "C2",
+          "C2",
+          "F2"
+        ]
+      },
+      "stereo_side_to_mid_db": -39.1,
+      "rms_vs_mix_db": -11.3
+    },
+    {
+      "file": "drums.mp3",
+      "duration_seconds": 30.07,
+      "rms": 0.04895875230431557,
+      "peak": 0.6322,
+      "dynamic_spread_db": 52.3,
+      "tempo_raw_bpm": 83.4,
+      "tempo_musical_bpm": 83.4,
+      "beat_count": 39,
+      "onsets_per_second": 1.76,
+      "harmonic_ratio": 0.158,
+      "spectral_centroid_hz": 1451,
+      "spectral_rolloff_85_hz": 2759,
+      "spectral_flatness": 0.0112,
+      "key_candidates": [
+        {
+          "key": "C major",
+          "score": 0.802
+        },
+        {
+          "key": "C minor",
+          "score": 0.695
+        },
+        {
+          "key": "G major",
+          "score": 0.548
+        },
+        {
+          "key": "F major",
+          "score": 0.348
+        }
+      ],
+      "dominant_pitch_classes": [
+        "C",
+        "G",
+        "D",
+        "B",
+        "C#",
+        "F",
+        "E"
+      ],
+      "pitch_range": null,
+      "stereo_side_to_mid_db": -13.9,
+      "rms_vs_mix_db": -10.2
+    },
+    {
+      "file": "guitar.mp3",
+      "duration_seconds": 30.07,
+      "rms": 0.07129266113042831,
+      "peak": 0.6523,
+      "dynamic_spread_db": 64.7,
+      "tempo_raw_bpm": 172.3,
+      "tempo_musical_bpm": 86.1,
+      "beat_count": 53,
+      "onsets_per_second": 0.86,
+      "harmonic_ratio": 0.916,
+      "spectral_centroid_hz": 1164,
+      "spectral_rolloff_85_hz": 2311,
+      "spectral_flatness": 0.0054,
+      "key_candidates": [
+        {
+          "key": "C major",
+          "score": 0.878
+        },
+        {
+          "key": "C minor",
+          "score": 0.584
+        },
+        {
+          "key": "E minor",
+          "score": 0.484
+        },
+        {
+          "key": "A minor",
+          "score": 0.48
+        }
+      ],
+      "dominant_pitch_classes": [
+        "C",
+        "E",
+        "G",
+        "F",
+        "B",
+        "D",
+        "Eb"
+      ],
+      "pitch_range": {
+        "midi_p10_p50_p90": [
+          63.9,
+          71.9,
+          72.1
+        ],
+        "notes_p10_p50_p90": [
+          "E4",
+          "C5",
+          "C5"
+        ]
+      },
+      "stereo_side_to_mid_db": -7.4,
+      "rms_vs_mix_db": -6.9
+    },
+    {
+      "file": "piano.mp3",
+      "duration_seconds": 30.07,
+      "rms": 0.006713101640343666,
+      "peak": 0.1227,
+      "dynamic_spread_db": 34.6,
+      "tempo_raw_bpm": 161.5,
+      "tempo_musical_bpm": 80.7,
+      "beat_count": 56,
+      "onsets_per_second": 0.8,
+      "harmonic_ratio": 0.764,
+      "spectral_centroid_hz": 1962,
+      "spectral_rolloff_85_hz": 4440,
+      "spectral_flatness": 0.0159,
+      "key_candidates": [
+        {
+          "key": "C major",
+          "score": 0.882
+        },
+        {
+          "key": "C minor",
+          "score": 0.601
+        },
+        {
+          "key": "F major",
+          "score": 0.523
+        },
+        {
+          "key": "A minor",
+          "score": 0.509
+        }
+      ],
+      "dominant_pitch_classes": [
+        "C",
+        "E",
+        "F",
+        "G",
+        "B",
+        "D",
+        "C#"
+      ],
+      "pitch_range": {
+        "midi_p10_p50_p90": [
+          47.9,
+          64.0,
+          71.7
+        ],
+        "notes_p10_p50_p90": [
+          "C3",
+          "E4",
+          "C5"
+        ]
+      },
+      "stereo_side_to_mid_db": -6.5,
+      "rms_vs_mix_db": -27.4
+    },
+    {
+      "file": "vocals.mp3",
+      "duration_seconds": 30.07,
+      "rms": 0.0017395836766809225,
+      "peak": 0.0443,
+      "dynamic_spread_db": 24.1,
+      "tempo_raw_bpm": 136.0,
+      "tempo_musical_bpm": 68.0,
+      "beat_count": 45,
+      "onsets_per_second": 1.03,
+      "harmonic_ratio": 0.913,
+      "spectral_centroid_hz": 2202,
+      "spectral_rolloff_85_hz": 5016,
+      "spectral_flatness": 0.0178,
+      "key_candidates": [
+        {
+          "key": "C major",
+          "score": 0.781
+        },
+        {
+          "key": "C minor",
+          "score": 0.524
+        },
+        {
+          "key": "F major",
+          "score": 0.453
+        },
+        {
+          "key": "E minor",
+          "score": 0.438
+        }
+      ],
+      "dominant_pitch_classes": [
+        "C",
+        "E",
+        "F",
+        "B",
+        "Eb",
+        "D",
+        "G"
+      ],
+      "pitch_range": {
+        "midi_p10_p50_p90": [
+          61.0,
+          69.8,
+          86.0
+        ],
+        "notes_p10_p50_p90": [
+          "C♯4",
+          "A♯4",
+          "D6"
+        ]
+      },
+      "stereo_side_to_mid_db": -10.1,
+      "rms_vs_mix_db": -39.2
+    },
+    {
+      "file": "other.mp3",
+      "duration_seconds": 30.07,
+      "rms": 0.09897717833518982,
+      "peak": 0.5276,
+      "dynamic_spread_db": 34.7,
+      "tempo_raw_bpm": 117.5,
+      "tempo_musical_bpm": 117.5,
+      "beat_count": 57,
+      "onsets_per_second": 3.82,
+      "harmonic_ratio": 0.952,
+      "spectral_centroid_hz": 643,
+      "spectral_rolloff_85_hz": 953,
+      "spectral_flatness": 0.0002,
+      "key_candidates": [
+        {
+          "key": "C major",
+          "score": 0.877
+        },
+        {
+          "key": "A minor",
+          "score": 0.604
+        },
+        {
+          "key": "F major",
+          "score": 0.508
+        },
+        {
+          "key": "C minor",
+          "score": 0.489
+        }
+      ],
+      "dominant_pitch_classes": [
+        "C",
+        "E",
+        "F",
+        "G",
+        "B",
+        "D",
+        "A"
+      ],
+      "pitch_range": {
+        "midi_p10_p50_p90": [
+          64.0,
+          71.0,
+          74.0
+        ],
+        "notes_p10_p50_p90": [
+          "E4",
+          "B4",
+          "D5"
+        ]
+      },
+      "stereo_side_to_mid_db": -6.4,
+      "rms_vs_mix_db": -4.1
+    }
+  ],
+  "plantia_translation": {
+    "style_template": "ritual",
+    "reason": "pedal grave, pulso estable y capas armónicas; requiere una partitura nueva, no copiar ritual",
+    "harmony": {
+      "detected_key": "C major",
+      "scale": "Ionian",
+      "notes": [
+        0,
+        2,
+        4,
+        5,
+        7,
+        9,
+        11
+      ],
+      "tuning": 440
+    },
+    "tempo_reference_bpm": 86.1,
+    "progression_hypothesis": [
+      0,
+      0,
+      3,
+      0
+    ],
+    "slots": [
+      {
+        "source_stem": "bass",
+        "status": "candidate",
+        "role": "foundation",
+        "kind": "synth",
+        "defaultPreset": "meadow",
+        "octaves": [
+          2,
+          3
+        ],
+        "relative_rms_db": -11.3
+      },
+      {
+        "source_stem": "drums",
+        "status": "candidate",
+        "role": "pulse",
+        "kind": "instrument",
+        "defaultPreset": "congas",
+        "octaves": null,
+        "relative_rms_db": -10.2
+      },
+      {
+        "source_stem": "guitar",
+        "status": "candidate",
+        "role": "lead",
+        "kind": "instrument",
+        "defaultPreset": "guitar",
+        "octaves": [
+          3,
+          5
+        ],
+        "relative_rms_db": -6.9
+      },
+      {
+        "source_stem": "piano",
+        "status": "review/likely bleed",
+        "role": "accent",
+        "kind": "instrument",
+        "defaultPreset": "pianoforte",
+        "octaves": [
+          3,
+          5
+        ],
+        "relative_rms_db": -27.4
+      },
+      {
+        "source_stem": "vocals",
+        "status": "review/likely bleed",
+        "role": "counterline",
+        "kind": "instrument",
+        "defaultPreset": "mixed-choir",
+        "octaves": [
+          3,
+          5
+        ],
+        "relative_rms_db": -39.2
+      },
+      {
+        "source_stem": "other",
+        "status": "candidate",
+        "role": "pad",
+        "kind": "synth",
+        "defaultPreset": "peace",
+        "octaves": [
+          3,
+          4
+        ],
+        "relative_rms_db": -4.1
+      }
+    ]
+  }
+}

@@ -3,9 +3,10 @@ import type { Bank } from "../sonora/dsp";
 import { NativePcmCore } from "./native-pcm";
 import { Platform } from "react-native";
 import type { Event } from "../sonora/composer";
-import { soundSlots, type Configuration } from "../sonora/presets";
+import { soundSlots, type Configuration, type Patch } from "../sonora/presets";
 
 const BLOCK_SECONDS = 0.04;
+const START_RESERVE = 0.36;
 // Native playback must outlast a UI/menu render that blocks the JS producer.
 // 120 ms was exhausted before a modal finished opening, causing an underrun.
 const MIN_RESERVE = 1.2;
@@ -31,7 +32,7 @@ export class NativeSynth {
   private fadeInAt = 0;
   private holdUntil = 0;
   private quietSeconds = 0;
-  private reserve = MIN_RESERVE;
+  private reserve = START_RESERVE;
   private minimumReserve = MIN_RESERVE;
   private peak = 0;
   private lastLog = 0;
@@ -40,6 +41,7 @@ export class NativeSynth {
   private underruns = 0;
   private blocks = 0;
   private lastRenderMs = 0;
+  private refreshQueue = false;
   private frames: number;
   private blockSeconds: number;
 
@@ -62,10 +64,12 @@ export class NativeSynth {
   }
 
   configure(config: Configuration, bank: Bank) {
+    const moodChanged = config.mood !== this.config.mood;
     this.config = config;
     this.bank = bank;
     // Preserve oscillators, scheduled releases and the entire effects history.
     this.core.configure(config, bank);
+    this.refreshQueue ||= moodChanged;
     this.log("CONFIG", this.configurationLog(config));
   }
 
@@ -83,13 +87,35 @@ export class NativeSynth {
         ...e.note, time: e.note.time + offset, sourceTime: e.note.sourceTime + offset,
       } } : {}),
     })));
+    if (this.refreshQueue) {
+      this.refreshQueue = false;
+      this.generation++;
+      if (this.timer != null) clearTimeout(this.timer);
+      this.timer = null;
+      this.disposeQueue();
+      this.reserve = START_RESERVE;
+    }
     const notes = events
       .filter((e): e is Extract<Event, { type: "note" }> => e.type === "note")
       .map((e) => ({ slot: e.note.slot, lane: e.note.lane, midi: e.note.midi,
         delayMs: Math.round((e.note.time - e.note.sourceTime) * 1000),
         durationMs: Math.round(e.note.duration * 1000),
-        reason: e.note.reason ?? 'preview-or-greeting', phraseStep: e.note.phraseStep }));
-    if (notes.length) console.info("[Plantia Music]", JSON.stringify({ event: "NOTES", notes }));
+        reason: e.note.reason ?? 'preview-or-greeting', phraseStep: e.note.phraseStep,
+        plantProfile: e.note.plantProfile, plantTempoScene: e.note.plantTempoScene,
+        plantEpoch: e.note.plantEpoch,
+        packetCadenceMs: e.note.packetCadenceMs,
+        packetTempoChange: e.note.packetTempoChange == null ? undefined :
+          Number(e.note.packetTempoChange.toFixed(3)) }));
+    const mixes = events
+      .filter((e): e is Extract<Event, { type: "mix" }> => e.type === "mix")
+      .map((e) => ({ slot: e.slot, level: Math.round(e.mix.level * 100),
+        delay: e.mix.delay.on ? { wet: Math.round(e.mix.delay.wet),
+          rate: Math.round(e.mix.delay.rate) } : "off",
+        reverb: { wet: Math.round(e.mix.reverb.wet), amount: Math.round(e.mix.reverb.amount) },
+        chorus: e.mix.chorus.on ? { depth: Math.round(e.mix.chorus.depth),
+          rate: Math.round(e.mix.chorus.rate) } : "off",
+        smoothing: Number(e.mix.smoothing.toFixed(2)) }));
+    if (notes.length) console.info("[Plantia Music]", JSON.stringify({ event: "SCORE", notes, mixes }));
     this.active = true;
     this.quietSeconds = 0;
     // BLE callbacks also keep the producer alive when Android pauses UI timers.
@@ -210,6 +236,7 @@ export class NativeSynth {
           this.output.gain.setValueAtTime(0, this.context.currentTime);
           this.source!.start(start, 0);
           this.started = true;
+          this.reserve = Math.max(this.reserve, this.minimumReserve);
           this.protectEnd();
           this.log("START");
         }
@@ -255,6 +282,7 @@ export class NativeSynth {
     this.active = false;
     this.muted = false;
     this.disposeQueue();
+    this.reserve = START_RESERVE;
     this.core.close();
     if (!this.closed) this.core = new NativePcmCore(this.context.sampleRate, this.config, this.bank);
     this.holdUntil = 0;
@@ -286,7 +314,7 @@ export class NativeSynth {
   }
 
   private configurationLog(config: Configuration) {
-    const effects = (p: Configuration["synth"]) => ({
+    const effects = (p: Patch) => ({
       delay: { on: p.delay.on, wet: p.delay.wet, rate: p.delay.rate },
       reverb: { on: p.reverb.on, wet: p.reverb.wet, amount: p.reverb.amount },
       chorus: { on: p.chorus.on, depth: p.chorus.depth, rate: p.chorus.rate },
@@ -294,14 +322,11 @@ export class NativeSynth {
     });
     return {
       slots: soundSlots(config).map((s) => ({ id: s.id, kind: s.kind, preset: s.patch.preset,
-        level: s.level, effects: effects(s.patch), motion: s.motion })),
-      presets: { synth: config.synth.preset, instrument: config.instrument.preset },
-      levels: { synth: config.synthLevel, instrument: config.instrumentLevel,
-        greeting: config.greetingLevel },
-      effects: { synth: effects(config.synth), instrument: effects(config.instrument) },
-      synthMotion: config.synthMotion,
-      mood: config.mood ?? "organic", plantResponse: config.plantResponse ?? 1,
-      masterGain: 4.125,
+        level: s.level, effects: effects(s.patch) })),
+      harmony: config.harmony,
+      greetingLevel: config.greetingLevel,
+      mood: config.mood, plantResponse: config.plantResponse,
+      masterGain: 5.5,
     };
   }
 
