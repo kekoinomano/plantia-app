@@ -15,28 +15,40 @@ Después de instalar la compilación de desarrollo, `npm start` inicia Metro par
 
 Para volver a abrir Plantia en el simulador sin compilar: `npm run ios:open`. Los pods son las dependencias nativas de iOS; su primera instalación y compilación puede tardar varios minutos. Solo necesitas `npm run ios` otra vez si cambias dependencias o configuración nativa. El simulador permite revisar la interfaz y el audio, pero para conectar el sensor Bluetooth necesitas un iPhone físico.
 
-Enciende el sensor y desconéctalo de la web si estaba conectado allí. Pulsa **Conectar planta** y permite Bluetooth. Se conecta al primer sensor cercano que anuncia el servicio de Plantia. Las tarjetas de synth e instrumento abren todos los presets y parámetros; **Ritmo y mezcla** controla los volúmenes. El botón de pausa mantiene la conexión; tocar **Planta conectada** la cierra.
+Enciende el sensor y desconéctalo de la web si estaba conectado allí. Pulsa **Conectar planta** y permite Bluetooth. Se conecta al primer sensor cercano que anuncia el servicio de Plantia. Elige uno de los cinco moods y ajusta el volumen. La explicación del mood y el laboratorio muestran las ondas y sus decisiones musicales. El botón de pausa mantiene la conexión; tocar **Planta conectada** la cierra.
 
 ## Audio y segundo plano
 
-- BLE y el compositor de `src/lib/sonora` siguen decidiendo notas, expresiones y presets. El bucle de muestras de Sonora está implementado en `modules/plantia-pcm/cpp/Sonora.h`: se ejecuta al preparar PCM, nunca en el callback del altavoz. La preparación de voces se comparte con el DSP TypeScript mediante `prepareVoice`.
+- BLE y el compositor de `src/lib/wave-music` siguen decidiendo notas, expresiones y presets. El bucle de muestras de Sonora está implementado en `modules/plantia-pcm/cpp/Sonora.h`: se ejecuta al preparar PCM, nunca en el callback del altavoz. La preparación de voces se comparte con el DSP TypeScript mediante `prepareVoice`.
 - `native-synth.ts` reproduce PCM estéreo con `AudioBufferQueueSourceNode`, a la frecuencia del dispositivo. Incluye chorus, eco, reverberación, envolventes y limitador. Conserva el estado entre bloques y cambios de configuración.
-- Bloques de unos 40 ms, con 120 ms de reserva inicial. Se precarga antes de arrancar; el margen aumenta si el render tarda más o se vacía la cola (hasta 600 ms). El retraso total incluye las ventanas de análisis de 250 ms, BLE y el dispositivo. Los lotes de notas mantienen sus intervalos.
+- Bloques de unos 40 ms, con una reserva de 1,2–2 segundos. El primer plan espera la ventana corta de 3 segundos del eje del sensor; la ventana larga usa 8 segundos. El retraso audible incluye análisis, BLE y la cola PCM. Los lotes de notas mantienen sus intervalos.
 - Los finales dejan drenar los efectos. Un fundido programado nativamente protege el final de la cola aunque JS se bloquee. Pausa/cierre invalidan trabajos pendientes. Un vaciado produce nueva precarga y un log `UNDERRUN`.
 - **Recompilación necesaria:** `npm run android` y, en iOS, `npx pod-install && npm run ios` incorporan el módulo local `PlantiaPcm`. Recargar Metro no es suficiente. Una instalación antigua muestra `NATIVE_MODULE_MISSING`, sin recurrir al render lento en Hermes.
 - Logs `[Plantia PCM]`: `INIT`, `CONFIG`, `START`, `STATUS` cada dos segundos mientras se genera audio, `UNDERRUN`, `ERROR`, `PAUSE` y `CLOSE`. `CONFIG` muestra niveles y el estado/valores de cada efecto realmente enviados al motor; `[Plantia Music] NOTES` muestra las notas generadas y su retraso compositivo para distinguir una respuesta musical de un eco. Copia desde `INIT` hasta el fallo para diagnosticarlo.
-- Las 70 muestras MP3 se incluyen en la app. Se decodifican, recortan y normalizan igual que en la web; solo se retienen el instrumento seleccionado y el arpa. No requiere red en una compilación instalada con sus assets.
+- Las muestras del banco se incluyen en la app. Se decodifican, recortan y normalizan; se cargan los programas que necesita la paleta del mood seleccionado. No requiere red en una compilación instalada con sus assets.
 - iOS declara `audio` y `bluetooth-central`, con sesión de reproducción. Android declara el servicio en primer plano `mediaPlayback|connectedDevice` y su notificación. Incluye controles del sistema, interrupciones y pausa al quitar auriculares.
 - Bloquear la pantalla o cambiar de app mantiene la sesión. El plugin local `with-background-playback` corrige el valor `stopWithTask` del servicio Android para que quitar la actividad de recientes no solicite detenerlo. Forzar la detención desde ajustes de Android, cerrar forzosamente en iOS o que el sistema mate el proceso detiene la música.
 - La gráfica conserva hasta doce segundos de lecturas, se anima en el hilo de UI y deja de actualizar la pantalla al pasar a segundo plano. No se guarda la sesión.
 
-Protocolo BLE: servicio `4fafc201-1fb5-459e-8fcc-c5c9c331914b`, característica de notificaciones `beb5483e-36e1-4688-b7f5-ea07361b26a8`, JSON `{"arr":[10 enteros]}`; se solicita MTU 247 en Android.
+Protocolo BLE v2: servicio `df7167d3-4595-4d3e-b28d-f20ae4c87cdc`, característica de notificaciones `05cdaa8c-62b1-459e-a07f-1e4167b443c5`, JSON `{"arr":[10 enteros]}`; se solicita MTU 247 en Android. La búsqueda solo muestra dispositivos que anuncien ese UUID de servicio, sin filtrar por nombre. Actualiza también el firmware del ESP32; consulta la [documentación de Arduino v2](hardware/arduino/v2/README.md).
 
 ## Cambiar Sonora
 
-Edita el compositor en `src/lib/sonora` y el transporte móvil en `src/lib/audio/native-synth.ts`. Los cambios al bucle DSP requieren mantener sincronizado `modules/plantia-pcm/cpp/Sonora.h`. `npm run sonora:build` sigue generando el worklet portable de referencia y el índice estático de muestras, también antes de `npm start`, `npm run ios` y `npm run android`. La reproducción móvil ya no importa ese worklet. No edites `src/lib/audio/sonora-runtime.ts` ni `sample-assets.ts` a mano.
+Edita las reglas en `src/lib/wave-music/moods/` y el transporte en
+`src/lib/audio/native-synth.ts`. Los cinco perfiles usan WaveComposer y el análisis
+espectral compartido; el lofi conserva el piano con motivo resuelto aprobado.
+Las decisiones y fuentes están en [WAVE_MOODS.md](docs/music/WAVE_MOODS.md).
 
-El cambio al grafo nativo se ha comprobado con `npm run typecheck`; no se han añadido tests ni benchmarks. **Queda pendiente escuchar esta implementación en iPhone y Android físicos con el sensor**, incluyendo pantalla bloqueada, llamada/interrupción y auriculares. Reconstruye Android para instalar el cambio del servicio. El simulador y la vista web (`npm run web`) sirven para revisar la interfaz; no validan BLE ni segundo plano.
+Los cambios al bucle DSP requieren mantener sincronizado
+`modules/plantia-pcm/cpp/Sonora.h`. `npm run sonora:build` sólo genera el índice
+estático de muestras; ya no genera una copia del compositor en un worklet.
+
+En esta migración no se han ejecutado tests, builds ni renders. Los cuatro moods
+nuevos quedan pendientes de valoración auditiva en el dispositivo.
+
+Para reproducir grabaciones, generar MP3 y medir variación entre señales y a lo
+largo del tiempo: `npm run moods:test`. Admite filtros opcionales de planta y mood;
+consulta [la guía de pruebas de moods](docs/music/TEST_MOODS.md).
 
 ## Créditos
 

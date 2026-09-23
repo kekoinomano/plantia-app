@@ -1,14 +1,16 @@
-import Svg, { Circle, Path, Line, Ellipse } from "react-native-svg";
+import Svg, { Circle, Path, Line } from "react-native-svg";
 import { colors } from "./plantia-theme";
 
 export function Icon({
   name,
   size = 22,
   color = colors.ink,
+  muted = false,
 }: {
-  name: "leaf" | "bluetooth" | "play" | "pause" | "sliders" | "close" | "chevron" | "sound" | "edit" | "check" | "search" | "wave" | "keys" | "bell" | "strings" | "wind";
+  name: "leaf" | "bluetooth" | "play" | "pause" | "sliders" | "close" | "chevron" | "sound" | "info" | "back" | "refresh" | "edit" | "check" | "search" | "wave" | "keys" | "bell" | "strings" | "wind";
   size?: number;
   color?: string;
+  muted?: boolean;
 }) {
   return (
     <Svg
@@ -56,21 +58,12 @@ export function Icon({
         <>
           <Path d="M4 10h4l5-4v12l-5-4H4Z" />
           <Path d="M17 8c3 2 3 6 0 8m3-11c5 4 5 10 0 14" />
+          {muted && <Path d="M4 4 20 20" strokeWidth={2} />}
         </>
       )}
-    </Svg>
-  );
-}
-export function Botanical() {
-  return (
-    <Svg width={145} height={186} viewBox="0 0 160 200" fill="none">
-      <Ellipse cx={87} cy={108} rx={60} ry={72} fill="#E5EADA" opacity={0.55} />
-      <Path d="M78 196C69 150 94 109 93 35" stroke="#799477" strokeWidth={1.4} />
-      <Path d="M91 73C58 77 50 48 57 17c29 8 47 29 34 56Z" fill="#B7C9AB" />
-      <Path d="M91 115c-3-35 13-59 50-59-1 31-19 52-50 59Z" fill="#91AC8B" />
-      <Path d="M79 152c-27 0-51-16-54-46 33-8 53 13 54 46Z" fill="#C4D2B7" />
-      <Path d="M92 77 62 26m29 91 42-52m-54 90-45-41" stroke="#6F8B6B" strokeWidth={1.1} />
-      <Path d="M93 48c-9-20-2-35 11-45 10 22 7 37-11 45Z" fill="#D0DCC4" />
+      {name === "info" && <><Circle cx={12} cy={12} r={9} /><Path d="M12 11v6" /><Circle cx={12} cy={7.5} r={.7} fill={color} strokeWidth={0} /></>}
+      {name === "back" && <><Path d="m14 5-7 7 7 7" /><Path d="M7 12h13" /></>}
+      {name === "refresh" && <><Path d="M20 7v5h-5" /><Path d="M4 17v-5h5" /><Path d="M6.1 8A7 7 0 0 1 18.7 6L20 8m-16 8 1.3 2A7 7 0 0 0 18 16" /></>}
     </Svg>
   );
 }

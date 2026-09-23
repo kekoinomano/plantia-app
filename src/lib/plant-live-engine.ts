@@ -1,21 +1,21 @@
 import {
-  createSignalAccumulator,
   GAP_SECONDS,
-  type Frame,
   type Recording,
 } from './sonora/signal.ts';
 import {
-  Composer,
   noteName,
   type Event,
   type Lane,
-} from './sonora/composer.ts';
+} from './sonora/music-types.ts';
 import { AudioCore, RELEASE_SECONDS, type Bank } from './sonora/dsp.ts';
 import {
   defaultConfiguration,
+  sanitizeConfiguration,
   preset,
   type Configuration,
 } from './sonora/presets.ts';
+import { WaveComposer } from './wave-music/composer';
+import { waveMood } from './wave-music/registry';
 export const LIVE_DELAY = 0.12;
 export type LiveStatus = {
   phase: 'waiting' | 'playing' | 'gap' | 'ended';
@@ -28,9 +28,8 @@ export type LiveStatus = {
 };
 /** The connection clock drives a bounded composer and the same renderer used for saved sessions. */
 export class LiveMusicEngine {
-  private composer: Composer;
+  private composer: WaveComposer;
   private audio: AudioCore;
-  private signal = createSignalAccumulator((frame) => this.frame(frame));
   private elapsed: number;
   private origin: number;
   private lastFrame = -Infinity;
@@ -45,12 +44,25 @@ export class LiveMusicEngine {
     config = defaultConfiguration(),
     bank: Bank = {},
   ) {
+    config = sanitizeConfiguration(config);
     this.sampleRate = sampleRate;
     this.config = config;
     this.bank = bank;
     this.elapsed = this.origin = elapsed;
-    this.composer = new Composer(config);
     this.audio = new AudioCore(sampleRate, config, bank);
+    this.composer = this.createComposer(config);
+  }
+  private createComposer(config: Configuration) {
+    const mood = waveMood(config.profile);
+    if (!mood) throw new Error(`Mood de ondas no registrado: ${config.profile}`);
+    return new WaveComposer(config, mood, () => {
+      if (Number.isFinite(this.stoppedAt)) return;
+      this.composer.advance(this.elapsed);
+      this.schedule(this.composer.drain());
+    }, error => {
+      this.finish();
+      console.error('[Plantia Waves]', error);
+    });
   }
   private schedule(events: Event[]) {
     this.audio.schedule(
@@ -73,11 +85,6 @@ export class LiveMusicEngine {
       }),
     );
   }
-  private frame(frame: Frame) {
-    this.lastFrame = frame.time;
-    this.composer.push(frame);
-    this.schedule(this.composer.drain());
-  }
   push(packet: Recording['packets'][number]) {
     if (Number.isFinite(this.stoppedAt)) return;
     const time = packet.elapsed_ms / 1000;
@@ -88,12 +95,20 @@ export class LiveMusicEngine {
       this.composer.drain();
       this.audio = new AudioCore(this.sampleRate, this.config, this.bank);
     }
-    this.signal.push(packet);
+    if (this.composer.push(packet, time)) this.lastFrame = time;
+    this.schedule(this.composer.drain());
   }
   configure(config: Configuration, bank: Bank = this.bank) {
+    config = sanitizeConfiguration(config);
+    const replace = config.profile !== this.config.profile;
+    if (replace) {
+      this.composer.finish(this.elapsed);
+      this.schedule(this.composer.drain());
+      this.composer = this.createComposer(config);
+      this.lastFrame = -Infinity;
+    } else this.composer.configure(config, this.elapsed);
     this.config = config;
     this.bank = bank;
-    this.composer.configure(config, this.elapsed);
     this.audio.configure(config, bank);
     this.schedule(this.composer.drain());
   }
@@ -103,13 +118,11 @@ export class LiveMusicEngine {
   }
   finish() {
     if (Number.isFinite(this.stoppedAt)) return;
-    this.signal.flush();
     this.composer.finish(this.elapsed);
     this.schedule(this.composer.drain());
     this.stoppedAt = this.elapsed;
   }
   render(left: Float32Array, right: Float32Array) {
-    this.signal.advance(this.elapsed * 1000);
     if (!Number.isFinite(this.stoppedAt)) {
       this.composer.advance(this.elapsed);
       this.schedule(this.composer.drain());
@@ -150,6 +163,6 @@ export class LiveMusicEngine {
     };
   }
   get diagnostics() {
-    return { ...this.audio.status, invalid: this.signal.invalid };
+    return { ...this.audio.status, composition: this.composer.diagnostics };
   }
 }

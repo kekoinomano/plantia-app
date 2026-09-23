@@ -15,7 +15,19 @@ export type Note = {
   pan: number;
   fade?: number;
   reason?: string;
-  phraseStep?: number;
+  /** Raw event detected before Fourier, with its own reception-clock provenance. */
+  rawGreeting?: import('../wave-music/greeting').RawGreeting;
+  /** Auditable musical interpretation of a wave-analysis snapshot. */
+  wave?: {
+    analysis: number; windowSeconds: number; start: number; end: number;
+    mean: number; explained: number | null; rmse: number; rule: string;
+    components: { id: number; rank: number; frequency: number; amplitude: number;
+      phase: number; improvement: number; weight: number }[];
+    musicalStep: number; mapping: string;
+    contextAnalysis?: number; musicalContext?: Record<string, unknown>;
+  };
+  /** Acquisition time behind the note, distinct from its audible delivery time. */
+  signalTime?: number;
 };
 export type Expression = {
   brightness: number;
@@ -35,3 +47,6 @@ export type Soundscape = {
   events: Event[];
   notes: Note[];
 };
+
+export const noteName = (midi: number) =>
+  ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'][((Math.round(midi)%12)+12)%12] + (Math.floor(midi/12)-1);

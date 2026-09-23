@@ -1,448 +1,116 @@
-import { useCallback, useState } from "react";
-import {
-  ActivityIndicator,
-  Linking,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { useRouter, type Href } from "expo-router";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { plantSession, usePlantSession } from "@/lib/plant-session";
-import { preset, soundSlots } from "@/lib/sonora/presets";
-import { MOODS, mood } from "@/lib/sonora/moods";
-import { Botanical, Icon } from "@/components/plant-icon";
-import { SignalChart } from "@/components/signal-chart";
-import { SoundEditor, soundIcon } from "@/components/sound-editor";
-import { colors, serif } from "@/components/plantia-theme";
+import { Icon } from "@/components/plant-icon";
+import { LivingPattern, WaveMark } from "@/components/muromura-visuals";
+import { LiveSignalChart } from "@/components/signal-chart";
+import { colors, moodPalette } from "@/components/plantia-theme";
+import { plantSession, usePlantControls } from "@/lib/plant-session";
+import { profile } from "@/lib/sonora/focus";
 
 export default function HomeScreen() {
-  const state = usePlantSession();
-  const [editor, setEditor] = useState<string | null>(null);
-  const [editorMode, setEditorMode] = useState<"choose" | "edit">("choose");
-  const closeEditor = useCallback(() => setEditor(null), []);
-  const [moodOpen, setMoodOpen] = useState(false);
-  const selectedMood = mood(state.config.mood);
-  const slots = soundSlots(state.config);
-  const [credits, setCredits] = useState(false);
+  const router = useRouter();
+  const state = usePlantControls();
+  const mood = profile(state.config.profile);
+  const palette = moodPalette(mood.id);
   const connected = state.connection === "connected";
-  const scanning = state.connection === "scanning";
-  const busy = scanning || state.connection === "connecting" || state.connection === "disconnecting";
-  return (
-    <SafeAreaView style={styles.safe} edges={["top"]}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.header}>
-          <View style={styles.brand}>
-            <Icon name="leaf" size={24} />
-            <Text style={styles.brandName}>plantia</Text>
-          </View>
-          <View style={styles.headerRight}>
-            <View style={styles.smallDot} />
-            <Text style={styles.headerNote}>un momento de naturaleza</Text>
-          </View>
+  const busy = state.connection === "scanning" || state.connection === "connecting" || state.connection === "disconnecting";
+  const status = connected ? state.device || "Planta conectada" : busy ? "Conectando…" : "Sin conectar";
+
+  return <SafeAreaView style={[styles.safe, { backgroundColor: palette.wash }]} edges={["top", "bottom"]}>
+    <LivingPattern color={palette.accent} />
+    <View style={styles.page}>
+      <View style={styles.header}>
+        <View style={styles.brand}>
+          <WaveMark color={colors.ink} width={39} />
+          <Text style={styles.wordmark}>MUROMURA</Text>
         </View>
-        <View style={styles.hero}>
-          <View style={styles.heroCopy}>
-            <Text style={styles.eyebrow}>LA NATURALEZA TIENE MÚSICA</Text>
-            <Text style={styles.title}>Escucha lo{`\n`}que crece.</Text>
-            <Text style={styles.subtitle}>
-              Tu planta, convertida en sonido.{`\n`}Conecta. Respira. Quédate un rato.
-            </Text>
+        <Pressable accessibilityRole="button" accessibilityLabel={`Bluetooth. ${status}`}
+          onPress={() => router.push("/bluetooth" as Href)} style={styles.bluetooth}>
+          <View style={[styles.statusDot, { backgroundColor: connected ? palette.accent : colors.muted }]} />
+          <Icon name="bluetooth" size={17} color={colors.ink} />
+          <Text numberOfLines={1} style={styles.bluetoothText}>{status}</Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.signalArea}>
+        <View style={styles.signalHeading}>
+          <View>
+            <Text style={styles.kicker}>{connected ? "ESCUCHANDO" : "SEÑAL"}</Text>
+            <Text style={styles.signalTitle}>{connected ? "Tu planta, ahora" : "Conecta para escuchar"}</Text>
           </View>
-          <View style={styles.botanical} pointerEvents="none">
-            <Botanical />
-          </View>
+          {connected && <View style={[styles.livePill, { borderColor: palette.accent }]}>
+            <View style={[styles.liveDot, { backgroundColor: palette.accent }]} />
+            <Text style={[styles.liveText, { color: palette.accent }]}>EN VIVO</Text>
+          </View>}
         </View>
-        <View style={styles.connectionRow}>
-          <Pressable
-            accessibilityRole="button"
-            disabled={state.connection === "disconnecting"}
-            onPress={() =>
-              connected || busy ? void plantSession.disconnect() : void plantSession.connect()
-            }
-            style={({ pressed }) => [styles.connect, pressed && { opacity: 0.85 }]}
-          >
-            {busy ? (
-              <ActivityIndicator color={colors.paper} size="small" />
-            ) : (
-              <Icon name={connected ? "leaf" : "bluetooth"} size={19} color={colors.paper} />
-            )}
-            <Text style={styles.connectText}>
-              {scanning
-                ? "Buscando plantas…"
-                : state.connection === "connecting"
-                  ? `Conectando con ${state.device}…`
-                  : state.connection === "disconnecting"
-                    ? "Desconectando…"
-                    : connected
-                      ? "Planta conectada"
-                      : "Conectar planta"}
-            </Text>
-            {connected && <View style={styles.connectedDot} />}
+        <LiveSignalChart waiting={connected || busy} accent={palette.accent} />
+        {!connected && <Text style={styles.emptyCopy}>La variación aparecerá aquí cuando el sensor empiece a enviar datos.</Text>}
+      </View>
+
+      {state.error && <Pressable accessibilityRole="alert" onPress={plantSession.clearError} style={styles.error}>
+        <Text style={styles.errorText}>{state.error}</Text><Icon name="close" size={15} color={colors.amber} />
+      </Pressable>}
+
+      <View style={styles.bottom}>
+        <View style={styles.actions}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Información musical"
+            onPress={() => router.push("/mood-info" as Href)} style={styles.roundButton}>
+            <Icon name="info" size={21} color={colors.ink} />
           </Pressable>
-          {connected && (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={state.playing ? "Pausar música" : "Reanudar música"}
-              onPress={plantSession.togglePlayback}
-              style={styles.playButton}
-            >
-              <Icon name={state.playing ? "pause" : "play"} />
-            </Pressable>
-          )}
+          <Pressable accessibilityRole="button" accessibilityLabel="Editar mood"
+            onPress={() => router.push("/mood-edit" as Href)} style={styles.roundButton}>
+            <Icon name="edit" size={20} color={colors.ink} />
+          </Pressable>
+          <View style={{ flex: 1 }} />
+          <Pressable accessibilityRole="button" accessibilityLabel={state.playing ? "Silenciar música" : "Reanudar música"}
+            accessibilityState={{ disabled: !connected }} disabled={!connected}
+            onPress={plantSession.togglePlayback} style={[styles.roundButton, !connected && styles.disabled]}>
+            <Icon name="sound" muted={!state.playing} size={21} color={colors.ink} />
+          </Pressable>
         </View>
-        <Text style={styles.connectionHint}>
-          {connected
-            ? `${state.device} · toca para desconectar`
-            : scanning
-              ? state.devices.length > 0
-                ? "Toca tu sensor de la lista · toca el botón para cancelar"
-                : "Acerca tu sensor · toca el botón para cancelar"
-              : state.connection === "connecting"
-                ? "Un momento, estás muy cerca…"
-                : "Acerca el sensor y deja que empiece la música."}
-        </Text>
-        {(scanning || state.connection === "connecting") && (
-          <View style={styles.devices}>
-            <View style={styles.devicesHeader}>
-              <Text style={styles.devicesTitle}>
-                {scanning ? "Plantia cerca de ti" : "Conectando…"}
-              </Text>
-              <Text style={styles.tiny}>
-                {scanning
-                  ? state.devices.length === 0
-                    ? "BUSCANDO"
-                    : `${state.devices.length} ENCONTRADOS`
-                  : state.device.toUpperCase()}
-              </Text>
-            </View>
-            {scanning && state.devices.length === 0 ? (
-              <View style={styles.devicesEmpty}>
-                <ActivityIndicator color={colors.green} />
-                <Text style={styles.devicesEmptyText}>
-                  Buscando Plantia…
-                </Text>
-              </View>
-            ) : (
-              scanning && (
-                <ScrollView style={styles.devicesList} nestedScrollEnabled>
-                  {state.devices.map((device) => (
-                    <Pressable
-                      key={device.id}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Conectar con ${device.name}`}
-                      onPress={() => plantSession.selectDevice(device.id)}
-                      style={({ pressed }) => [styles.deviceRow, pressed && styles.deviceRowPressed]}
-                    >
-                      <Icon
-                        name="leaf"
-                        size={17}
-                        color={colors.green}
-                      />
-                      <View style={styles.deviceInfo}>
-                        <Text numberOfLines={1} style={styles.deviceName}>
-                          {device.name}
-                        </Text>
-                      </View>
-                      <Icon name="chevron" size={15} color={colors.muted} />
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              )
-            )}
+        <Pressable accessibilityRole="button" accessibilityLabel={`Cambiar mood. Actual: ${mood.name}`}
+          onPress={() => router.push("/moods" as Href)} style={[styles.moodCard, { backgroundColor: palette.deep }]}>
+          <View style={styles.moodCopy}>
+            <Text style={[styles.moodKicker, { color: palette.wash }]}>MOOD</Text>
+            <Text style={styles.moodName}>{mood.name}</Text>
+            <Text numberOfLines={2} style={styles.moodDescription}>{mood.description}</Text>
           </View>
-        )}
-        {state.error && (
-          <View style={styles.error}>
-            <Text accessibilityRole="alert" style={styles.errorText}>
-              {state.error}
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Cerrar aviso"
-              onPress={plantSession.clearError}
-              hitSlop={12}
-            >
-              <Icon name="close" size={18} color={colors.amber} />
-            </Pressable>
-          </View>
-        )}
-        <SignalChart
-          points={state.points}
-          live={state.signal === "live"}
-          waiting={connected || busy}
-        />
-        <View style={styles.soundHeading}>
-          <Text style={styles.sectionTitle}>Tu mood</Text>
-          <Text style={styles.tiny}>UNA PLANTA, MUCHAS FORMAS DE ESCUCHAR</Text>
-        </View>
-        <Pressable accessibilityRole="button" accessibilityLabel="Elegir mood"
-          accessibilityState={{ expanded: moodOpen }} onPress={() => setMoodOpen(!moodOpen)}
-          style={styles.moodCard}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.moodName}>{selectedMood.name}</Text>
-            <Text style={styles.soundScale}>{selectedMood.description}</Text>
-          </View>
-          <View style={{ transform: [{ rotate: moodOpen ? "270deg" : "90deg" }] }}><Icon name="chevron" size={20} /></View>
+          <View style={styles.moodMark}><WaveMark color={palette.accent} width={94} /></View>
+          <Icon name="chevron" size={18} color={palette.wash} />
         </Pressable>
-        {moodOpen && <View style={styles.moodOptions}>{MOODS.map((m) =>
-          <Pressable key={m.id} accessibilityRole="button" accessibilityState={{ selected: selectedMood.id === m.id }}
-            onPress={() => { plantSession.selectMood(m.id); setMoodOpen(false); setEditor(null); }}
-            style={styles.moodOption}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.mixText}>{m.name}</Text>
-              <Text style={styles.soundScale}>{m.description}</Text>
-            </View>
-            {selectedMood.id === m.id && <Icon name="check" size={18} />}
-          </Pressable>)}</View>}
-        <Text style={[styles.cardEyebrow, { marginTop: 18, marginBottom: 10 }]}>SONIDOS DE ESTE MOOD</Text>
-        <View style={styles.soundCards}>
-          {slots.map((slot) => {
-            const definition = selectedMood.slots.find((s) => s.id === slot.id)!;
-            const sound = preset(slot.patch.preset);
-            return <View key={slot.id} style={styles.soundCard}>
-              <Pressable accessibilityRole="button" accessibilityLabel={`Elegir ${definition.label}`}
-                onPress={() => { setEditorMode("choose"); setEditor(slot.id); }} style={styles.soundSelect}>
-                <Icon name={soundIcon(slot.patch.preset)} size={21} color={colors.green} />
-                <View style={styles.voiceCopy}>
-                  <Text style={styles.cardEyebrow}>{definition.label.toUpperCase()}</Text>
-                  <Text style={[styles.soundName, { fontSize: 18 }]}>{sound.name}</Text>
-                  {definition.families && <Text style={styles.soundScale}>Solo {definition.families.map((f) => f === 'percussion' ? 'percusión' : f === 'wind' ? 'viento' : f).join(' / ')}</Text>}
-                </View>
-                <View style={{ transform: [{ rotate: "90deg" }] }}><Icon name="chevron" size={14} /></View>
-              </Pressable>
-              <Pressable accessibilityRole="button" accessibilityLabel={`Editar ${definition.label}: ${sound.name}`}
-                onPress={() => { setEditorMode("edit"); setEditor(slot.id); }} style={styles.voiceEdit}><Icon name="edit" size={17} /></Pressable>
-            </View>;
-          })}
-        </View>
-        <Pressable accessibilityRole="button" onPress={() => setEditor("mix")} style={styles.mix}>
-          <View style={styles.mixLeft}>
-            <Icon name="sliders" size={20} />
-            <Text style={styles.mixText}>Ritmo y mezcla</Text>
-          </View>
-          <Text style={styles.mixValue}>{Number(state.config.speed.toFixed(2))}×</Text>
-          <Icon name="chevron" size={16} />
-        </Pressable>
-        <View style={styles.footer}>
-          <View style={styles.footerLine} />
-          <Icon name="leaf" size={16} color="#98A18F" />
-          <View style={styles.footerLine} />
-        </View>
-        <Text style={styles.footerText}>
-          {connected && state.playing
-            ? "Puedes apagar la pantalla. La escucha continúa."
-            : "Un pequeño espacio para bajar el ritmo."}
-        </Text>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => setCredits(!credits)}
-          style={styles.creditsButton}
-        >
-          <Text style={styles.creditsLabel}>HECHO CON SONORA</Text>
-        </Pressable>
-        {credits && (
-          <View style={styles.credits}>
-            <Text style={styles.creditsText}>
-              Muestras FluidR3 GM de Frank Wen y colaboradores. MIDI.js Soundfonts de Benjamin
-              Gleitzman y colaboradores. Selección C2–C6, recortada y normalizada. Hang Drum utiliza
-              steel drum; Koshi y Tibetan Bell son modelos de síntesis.
-            </Text>
-            <Pressable
-              accessibilityRole="link"
-              onPress={() =>
-                void Linking.openURL(
-                  "https://github.com/gleitz/midi-js-soundfonts/tree/gh-pages/FluidR3_GM",
-                )
-              }
-            >
-              <Text style={styles.creditLink}>Fuente de las muestras ↗</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="link"
-              onPress={() => void Linking.openURL("https://creativecommons.org/licenses/by/3.0/")}
-            >
-              <Text style={styles.creditLink}>Licencia Creative Commons BY 3.0 ↗</Text>
-            </Pressable>
-          </View>
-        )}
-      </ScrollView>
-      <SoundEditor initialMode={editorMode} lane={editor} onClose={closeEditor} />
-    </SafeAreaView>
-  );
+      </View>
+    </View>
+  </SafeAreaView>;
 }
+
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.background },
-  content: {
-    paddingHorizontal: 24,
-    paddingTop: 14,
-    paddingBottom: 45,
-    maxWidth: 620,
-    width: "100%",
-    alignSelf: "center",
-  },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  brand: { flexDirection: "row", alignItems: "center", gap: 8 },
-  brandName: { fontFamily: serif, fontSize: 28, letterSpacing: -1, color: colors.ink },
-  headerRight: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1 },
-  smallDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: "#8E9E7C" },
-  headerNote: { color: colors.muted, fontSize: 9, flexShrink: 1 },
-  hero: { marginTop: 34, minHeight: 208, justifyContent: "center" },
-  heroCopy: { zIndex: 1 },
-  eyebrow: { color: colors.muted, letterSpacing: 1.7, fontSize: 8, marginBottom: 16 },
-  title: {
-    fontFamily: serif,
-    fontSize: 42,
-    lineHeight: 47,
-    color: colors.ink,
-    letterSpacing: -1.4,
-  },
-  subtitle: { fontSize: 12, color: colors.muted, lineHeight: 20, marginTop: 17 },
-  botanical: { position: "absolute", right: -19, top: 15, opacity: 0.9 },
-  connectionRow: { flexDirection: "row", gap: 10, marginTop: 22 },
-  connect: {
-    flex: 1,
-    minHeight: 56,
-    borderRadius: 29,
-    backgroundColor: colors.ink,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 11,
-  },
-  connectText: { color: colors.paper, fontSize: 14, fontWeight: "500" },
-  connectedDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#BFD6A5" },
-  playButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: colors.sage,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  connectionHint: {
-    color: colors.muted,
-    fontSize: 10,
-    textAlign: "center",
-    marginTop: 10,
-    lineHeight: 16,
-  },
-  error: {
-    backgroundColor: "#F3EBDC",
-    padding: 15,
-    borderRadius: 17,
-    flexDirection: "row",
-    gap: 12,
-    alignItems: "center",
-    marginTop: 16,
-  },
-  errorText: { flex: 1, color: colors.amber, fontSize: 12, lineHeight: 19 },
-  devices: {
-    backgroundColor: colors.paper,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: colors.line,
-    padding: 16,
-    marginTop: 14,
-  },
-  devicesHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "baseline",
-    gap: 8,
-  },
-  devicesTitle: { fontFamily: serif, fontSize: 16, color: colors.ink },
-  devicesEmpty: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingVertical: 18,
-  },
-  devicesEmptyText: { color: colors.muted, fontSize: 11 },
-  devicesList: { maxHeight: 240, marginTop: 6 },
-  deviceRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 13,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.line,
-  },
-  deviceRowPressed: { opacity: 0.7 },
-  deviceInfo: { flex: 1, gap: 2 },
-  deviceName: { color: colors.ink, fontSize: 13 },
-  deviceMeta: { color: colors.muted, fontSize: 9 },
-  cardEyebrow: { color: colors.muted, fontSize: 8, letterSpacing: 1.4 },
-  soundHeading: {
-    marginTop: 29,
-    marginBottom: 15,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "baseline",
-    gap: 8,
-  },
-  sectionTitle: { fontFamily: serif, fontSize: 21, color: colors.ink },
-  tiny: { color: colors.muted, fontSize: 7, letterSpacing: 0.6 },
-  moodCard: { flexDirection: "row", alignItems: "center", padding: 22, gap: 12, borderRadius: 23, backgroundColor: "#EAF0E2" },
-  moodName: { fontFamily: serif, fontSize: 30, color: colors.ink, marginBottom: 6 },
-  moodOptions: { borderRadius: 18, padding: 8, backgroundColor: "#EAF0E2", marginTop: 6 },
-  moodOption: { flexDirection: "row", alignItems: "center", padding: 13, gap: 12 },
-  soundCards: { gap: 8 },
-  soundCard: { flexDirection: "row", alignItems: "center", borderRadius: 23, backgroundColor: "#EAF0E2", paddingRight: 12 },
-  soundSelect: { flex: 1, flexDirection: "row", alignItems: "center", padding: 13, gap: 12, minHeight: 70 },
-  voiceIcon: { width: 48, height: 48, backgroundColor: "#FFFFFF88", borderRadius: 16, alignItems: "center", justifyContent: "center" },
-  voiceCopy: { flex: 1 },
-  voiceEdit: { width: 44, height: 44, borderRadius: 15, backgroundColor: "#FFFFFF88", alignItems: "center", justifyContent: "center" },
-  cardTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 4 },
-  soundName: {
-    fontFamily: serif,
-    fontSize: 23,
-    color: colors.ink,
-    marginTop: 7,
-    letterSpacing: -0.6,
-  },
-  soundScale: { color: colors.muted, fontSize: 9, marginTop: 7 },
-  cardBottom: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: 22,
-    gap: 4,
-  },
-  editLabel: { fontSize: 10, color: colors.ink },
-  mix: {
-    flexDirection: "row",
-    gap: 12,
-    alignItems: "center",
-    paddingVertical: 20,
-    paddingHorizontal: 5,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.line,
-  },
-  mixLeft: { flex: 1, flexDirection: "row", alignItems: "center", gap: 11 },
-  mixText: { color: colors.ink, fontSize: 12 },
-  mixValue: { color: colors.muted, fontSize: 12 },
-  footer: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 13,
-    marginTop: 27,
-  },
-  footerLine: { width: 25, height: 1, backgroundColor: colors.line },
-  footerText: {
-    textAlign: "center",
-    fontFamily: serif,
-    fontStyle: "italic",
-    fontSize: 12,
-    color: colors.muted,
-    marginTop: 12,
-    lineHeight: 20,
-  },
-  creditsButton: { alignSelf: "center", padding: 18 },
-  creditsLabel: { color: "#9EA696", fontSize: 7, letterSpacing: 2 },
-  credits: { gap: 10, padding: 15, backgroundColor: colors.soft, borderRadius: 16 },
-  creditsText: { color: colors.muted, fontSize: 11, lineHeight: 18 },
-  creditLink: { color: colors.green, fontSize: 11, textDecorationLine: "underline" },
+  safe: { flex: 1 },
+  page: { flex: 1, paddingHorizontal: 22, paddingTop: 8, paddingBottom: 10 },
+  header: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14 },
+  brand: { flexDirection: "row", alignItems: "center", gap: 9 },
+  wordmark: { color: colors.ink, fontSize: 11, letterSpacing: 3.2, fontWeight: "500" },
+  bluetooth: { maxWidth: 178, minHeight: 42, paddingHorizontal: 13, borderRadius: 22, flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "rgba(248,245,238,.74)", borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(31,40,24,.18)" },
+  statusDot: { width: 6, height: 6, borderRadius: 3 },
+  bluetoothText: { color: colors.ink, fontSize: 11, flexShrink: 1 },
+  signalArea: { flex: 1, minHeight: 275, justifyContent: "center", paddingTop: 18 },
+  signalHeading: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 28 },
+  kicker: { color: colors.muted, fontSize: 9, letterSpacing: 1.8, marginBottom: 7 },
+  signalTitle: { color: colors.ink, fontSize: 25, letterSpacing: -.5 },
+  livePill: { flexDirection: "row", gap: 6, alignItems: "center", borderWidth: 1, borderRadius: 14, paddingHorizontal: 9, paddingVertical: 6 },
+  liveDot: { width: 5, height: 5, borderRadius: 3 },
+  liveText: { fontSize: 8, letterSpacing: 1.2, fontWeight: "600" },
+  emptyCopy: { color: colors.muted, fontSize: 11, lineHeight: 17, maxWidth: 250, marginTop: 18 },
+  error: { flexDirection: "row", alignItems: "center", gap: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.amber, paddingVertical: 10 },
+  errorText: { color: colors.amber, fontSize: 11, lineHeight: 16, flex: 1 },
+  bottom: { gap: 14 },
+  actions: { flexDirection: "row", gap: 10 },
+  roundButton: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(248,245,238,.76)", borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(31,40,24,.18)" },
+  disabled: { opacity: .34 },
+  moodCard: { minHeight: 128, borderRadius: 28, flexDirection: "row", alignItems: "center", overflow: "hidden", paddingHorizontal: 21, paddingVertical: 20 },
+  moodCopy: { flex: 1, zIndex: 1 },
+  moodKicker: { fontSize: 9, letterSpacing: 1.8, opacity: .72, marginBottom: 8 },
+  moodName: { color: colors.paper, fontSize: 24, letterSpacing: -.4, marginBottom: 7 },
+  moodDescription: { color: colors.paper, opacity: .68, fontSize: 11, lineHeight: 16, maxWidth: 230 },
+  moodMark: { position: "absolute", right: 30, top: 12, opacity: .35 },
 });

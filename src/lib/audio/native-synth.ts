@@ -1,8 +1,8 @@
 import type { AudioBufferQueueSourceNode, AudioContext, GainNode } from "react-native-audio-api";
 import type { Bank } from "../sonora/dsp";
 import { NativePcmCore } from "./native-pcm";
-import { Platform } from "react-native";
-import type { Event } from "../sonora/composer";
+import { AppState, Platform } from "react-native";
+import type { Event } from "../sonora/music-types";
 import { soundSlots, type Configuration } from "../sonora/presets";
 
 const BLOCK_SECONDS = 0.04;
@@ -20,10 +20,13 @@ export class NativeSynth {
   private output: GainNode;
   private source: AudioBufferQueueSourceNode | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private wakeAt = Infinity;
+  private lastNoteLog = 0;
   private generation = 0;
   private pumping = false;
   private closed = false;
   private muted = false;
+  private userMuted = false;
   private active = false;
   private started = false;
   private prepared = 0;
@@ -83,22 +86,38 @@ export class NativeSynth {
         ...e.note, time: e.note.time + offset, sourceTime: e.note.sourceTime + offset,
       } } : {}),
     })));
-    const notes = events
+    const logNotes = __DEV__ && performance.now() - this.lastNoteLog >= 2000;
+    const notes = (logNotes ? events : [])
       .filter((e): e is Extract<Event, { type: "note" }> => e.type === "note")
       .map((e) => ({ slot: e.note.slot, lane: e.note.lane, midi: e.note.midi,
         delayMs: Math.round((e.note.time - e.note.sourceTime) * 1000),
         durationMs: Math.round(e.note.duration * 1000),
-        reason: e.note.reason ?? 'preview-or-greeting', phraseStep: e.note.phraseStep }));
-    if (notes.length) console.info("[Plantia Music]", JSON.stringify({ event: "NOTES", notes }));
+        reason: e.note.reason ?? 'audition', signalTime: e.note.signalTime,
+        preset: e.note.patch.preset, rawGreeting: e.note.rawGreeting,
+        wave: e.note.wave ? { analysis: e.note.wave.analysis, contextAnalysis: e.note.wave.contextAnalysis,
+          windowSeconds: e.note.wave.windowSeconds, rule: e.note.wave.rule,
+          components: e.note.wave.components.map(w => ({ id: w.id, weight: w.weight })) } : undefined,
+        queueMs: Math.round(this.remaining() * 1000) }));
+    if (notes.length) {
+      this.lastNoteLog = performance.now();
+      console.info("[Plantia Music]", JSON.stringify({ event: "NOTES", notes }));
+    }
     this.active = true;
     this.quietSeconds = 0;
-    // BLE callbacks also keep the producer alive when Android pauses UI timers.
-    this.pump();
+    // Never synthesize PCM inside a foreground BLE/button callback. One pending
+    // wake coalesces bursts; background playback retains its direct wake path.
+    if (AppState.currentState === 'active') this.wake();
+    else this.pump();
   }
 
   activity(until: number) {
     this.holdUntil = Math.max(this.holdUntil, until);
     this.lastPacket = this.context.currentTime;
+    this.active = true;
+    // BLE continues delivering in background even when UI timers are frozen.
+    // Use each packet as a native refill opportunity so lock/minimize cannot
+    // exhaust the PCM queue.
+    if (AppState.currentState !== 'active') this.pump();
   }
 
   private remaining() {
@@ -107,10 +126,13 @@ export class NativeSynth {
 
   private wake(delay = 0) {
     if (this.closed || this.muted || !this.active || this.pumping) return;
+    const deadline = performance.now() + delay;
+    if (this.timer != null && this.wakeAt <= deadline) return;
     if (this.timer != null) clearTimeout(this.timer);
+    this.wakeAt = deadline;
     this.timer = setTimeout(() => {
-      this.timer = null;
-      void this.pump();
+      this.timer = null; this.wakeAt = Infinity;
+      this.pump();
     }, delay);
   }
 
@@ -121,7 +143,9 @@ export class NativeSynth {
     // Notifications only wake the producer. Queue duration is derived from the
     // hardware clock, so delayed JS notifications cannot invent extra reserve.
     source.onBufferEnded = () => {
-      if (this.source === source) this.pump();
+      if (this.source !== source) return;
+      if (AppState.currentState === 'active') this.wake();
+      else this.pump();
     };
     this.source = source;
   }
@@ -142,12 +166,22 @@ export class NativeSynth {
   private protectEnd() {
     const now = this.context.currentTime;
     const gain = this.output.gain;
+    const audible = this.userMuted ? 0 : 1;
     gain.cancelAndHoldAtTime(now);
-    gain.linearRampToValueAtTime(1, Math.max(now, this.fadeInAt) + FADE);
+    gain.linearRampToValueAtTime(audible, Math.max(now, this.fadeInAt) + FADE);
     // This fade executes even if JS stalls or the app is suspended. Appending
     // another buffer cancels it before it begins; normal PCM stays untouched.
-    gain.setValueAtTime(1, Math.max(now + FADE, this.end - FADE));
+    gain.setValueAtTime(audible, Math.max(now + FADE, this.end - FADE));
     gain.linearRampToValueAtTime(0, Math.max(now + FADE * 2, this.end));
+  }
+
+  setMuted(value: boolean) {
+    if (this.closed || this.userMuted === value) return;
+    this.userMuted = value;
+    const now = this.context.currentTime;
+    this.output.gain.cancelAndHoldAtTime(now);
+    this.output.gain.linearRampToValueAtTime(value ? 0 : 1, now + 0.02);
+    this.log(value ? "MUTE" : "UNMUTE");
   }
 
   private pump() {
@@ -159,6 +193,7 @@ export class NativeSynth {
     try {
       const batchStart = performance.now();
       let batchBlocks = 0;
+      const foreground = AppState.currentState === 'active';
       while (valid() && this.active && this.remaining() < this.reserve) {
         this.advance();
         if (!valid()) return;
@@ -214,10 +249,10 @@ export class NativeSynth {
           this.log("START");
         }
         if (performance.now() - this.lastLog >= 2000) this.log("STATUS");
-        // A timer after EACH 40 ms block can take longer than the audio itself
-        // when React/BLE are busy. Refill in bounded batches before yielding.
+        // Foreground work yields after one block so presses can be serviced.
+        // Background refill uses larger batches where timer delivery is sparse.
         batchBlocks++;
-        if (batchBlocks >= 4 || performance.now() - batchStart >= 12) {
+        if (batchBlocks >= (foreground ? 1 : 4) || performance.now() - batchStart >= (foreground ? 4 : 12)) {
           // Return completely: never leave pumping=true waiting for a UI timer.
           // Native buffer-ended/BLE events can immediately run the next batch
           // while the activity is in the background. Timers are only a fallback.
@@ -300,8 +335,9 @@ export class NativeSynth {
         greeting: config.greetingLevel },
       effects: { synth: effects(config.synth), instrument: effects(config.instrument) },
       synthMotion: config.synthMotion,
-      mood: config.mood ?? "organic", plantResponse: config.plantResponse ?? 1,
-      masterGain: 4.125,
+      profile: config.profile, volume: config.volume,
+      masterGain: 3.6,
+      outputGain: 2.5,
     };
   }
 

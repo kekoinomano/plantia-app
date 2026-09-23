@@ -1,4 +1,7 @@
-import { mood, type MoodSlot, type SoundFamily } from './moods.ts';
+import { profile, type ProfileId } from './focus.ts';
+import { ensemblePlan } from './orchestration.ts';
+import { waveMood } from '../wave-music/registry';
+export type SoundFamily = 'ambient' | 'percussion' | 'wind' | 'strings' | 'keys' | 'voice';
 /** Sonora preset format v1: JSON-compatible; old saved configurations remain valid. */
 export const NOTE_NAMES = [
   'C',
@@ -51,9 +54,12 @@ export type Patch = {
   envelope: { on: boolean; release: number; attack: number };
 };
 export type Configuration = {
-  version: 1;
-  mood?: string;
-  plantResponse?: number;
+  version: 2;
+  volume: number;
+  profile: ProfileId;
+  /** User-facing musical overrides shared by every mood layer. */
+  scale: string;
+  tuning: number;
   slots?: SoundSlot[];
   synth: Patch;
   instrument: Patch;
@@ -103,6 +109,11 @@ const synths: Row[] = [
   ['Non Duality', 'Ryukyu', '3-5', '90/34', '19/99', '73/63', '100/9'],
 ];
 const instruments: Row[] = [
+  ['Electric Piano', 'Doric', '2-5', '-', '18/45', '8/10', '52/2', 'model:rhodes'],
+  ['Round Bass', 'Ionian', '1-3', '-', '-', '-', '15/1', 'model:bass'],
+  ['Soft Kick', '0', '2-2', '-', '-', '-', '4/0', 'model:kick'],
+  ['Brush Snare', '2', '2-2', '-', '-', '-', '3/0', 'model:snare'],
+  ['Soft Hat', '6', '2-2', '-', '-', '-', '2/0', 'model:hat'],
   ['Bongos', '0,1', '4-4', '-', '12/20', '-', '12/0', 'bongos'],
   ['Congas', '2,3,4', '4-4', '-', '14/25', '-', '16/0', 'congas'],
   ['Timbales', '5,6', '4-4', '-', '12/20', '-', '12/0', 'timbales'],
@@ -272,98 +283,60 @@ function make(row: Row, kind: Preset['kind'], flavor: number): Preset {
     },
   };
 }
-export const SYNTHS = synths.map((r, i) => make(r, 'synth', i));
+export const SYNTHS = [...synths,
+  ['Sleep Air', 'Maj Pentatonic', '2-4', '-', '48/85', '-', '90/95'] as Row,
+  ['Sleep Halo', 'Maj Pentatonic', '2-4', '-', '52/88', '5/3', '92/98'] as Row,
+  ['Prism Pedal', 'Maj Pentatonic', '2-4', '-', '40/75', '16/4', '80/85'] as Row,
+  ['Magnetic Pedal', 'Maj Pentatonic', '2-4', '-', '38/72', '22/5', '80/85'] as Row,
+  ['Liquid Nebula', 'Maj Pentatonic', '3-5', '-', '44/78', '48/5', '80/85'] as Row,
+  ['Spectral Bloom', 'Maj Pentatonic', '3-5', '-', '38/72', '52/7', '80/85'] as Row,
+  ['Spiral Reed', 'Maj Pentatonic', '3-5', '52/49', '38/72', '48/9', '24/65'] as Row,
+].map((r, i) => make(r, 'synth', i));
 export const INSTRUMENTS = instruments.map((r, i) => make(r, 'instrument', i));
 export const PRESETS = [...SYNTHS, ...INSTRUMENTS];
-export const TUNINGS = [420, 432, 440, 464];
+export const TUNINGS = [432, 440, 528] as const;
 export const preset = (id: string) =>
   PRESETS.find((p) => p.id === id) ?? SYNTHS[0];
 export const copyPatch = (id: string): Patch =>
   JSON.parse(JSON.stringify(preset(id).patch));
-export function defaultConfiguration(): Configuration {
-  return {
-    version: 1,
-    mood: 'organic',
-    plantResponse: 1,
-    synth: copyPatch('healing'),
-    instrument: copyPatch('harp'),
-    synthMotion: { transition: 4.5, stability: 78 },
-    speed: 1,
-    synthLevel: 0.55,
-    instrumentLevel: 0.95,
-    greetingLevel: 1,
-  };
+/** Renderer compatibility fields are derived, never user-authored patches. */
+export function performancePatch(id: string, slot: string, profileId: string): Patch {
+  return waveMood(profile(profileId).id)!.patch(id, slot);
 }
-const limit = (n: number, a: number, b: number) =>
-  Number.isFinite(n) ? Math.max(a, Math.min(b, n)) : a;
+export function defaultConfiguration(): Configuration {
+  return sanitizeConfiguration({ version: 2, volume: 1 } as Configuration);
+}
+/** Old mood/patch settings intentionally migrate to the new listening experience. */
 export function sanitizeConfiguration(input: Configuration): Configuration {
-  const c = JSON.parse(JSON.stringify(input)) as Configuration;
-  c.mood = mood(c.mood).id;
-  c.plantResponse = limit(c.plantResponse ?? 1, 0, 1);
-  const definition = mood(c.mood);
-  if (definition.slots.length > 8) throw Error('Un mood admite hasta ocho sonidos');
-  c.slots = definition.slots.map((slot) => {
-    const saved = c.slots?.find((s) => s.id === slot.id);
-    const legacy = !c.slots && definition.id === 'organic' ? c[slot.kind] : undefined;
-    const patch = saved?.patch ?? legacy ?? copyPatch(slot.defaultPreset);
-    if (!allowedPresets(slot).some((p) => p.id === patch.preset))
-      throw Error(`Sonido no compatible con ${slot.label}`);
-    return { id: slot.id, kind: slot.kind, patch,
-      ...(slot.kind === 'synth' ? { motion: saved?.motion ?? c.synthMotion ?? { transition: 4.5, stability: 78 } } : {}),
-      level: limit(saved?.level ?? (legacy ? c[slot.kind === 'synth' ? 'synthLevel' : 'instrumentLevel'] : slot.level), 0, 1) };
-  });
-  const synthMotion = c.synthMotion as Configuration['synthMotion'] & {
-    glide?: number;
+  const volume = Number.isFinite(input.volume) ? Math.max(0, Math.min(1, input.volume)) : 1;
+  const p = profile(input.profile);
+  const e = ensemblePlan(p.id);
+  const defaultScale = Object.entries(SCALES).find(([, notes]) =>
+    notes.length === p.notes.length && notes.every((note, index) => note === p.notes[index]))?.[0] ?? 'Chromatic';
+  const scale = input.scale && SCALES[input.scale] ? input.scale : defaultScale;
+  const tuning = TUNINGS.includes(input.tuning as (typeof TUNINGS)[number]) ? input.tuning : p.tuning;
+  const musicalPatch = (patch: Patch) => preset(patch.preset).percussion ? patch : {
+    ...patch, scale, notes: [...SCALES[scale]], tuning,
   };
-  c.synthMotion = {
-    transition: limit(synthMotion?.transition ?? synthMotion?.glide ?? 4.5, 1, 8),
-    stability: limit(synthMotion?.stability ?? 78, 0, 100),
+  const makePatch = (id: string, slot: string) => musicalPatch(performancePatch(id, slot, p.id));
+  const synth = makePatch(p.body[0], 'foundation');
+  const instrument = makePatch(p.lead[0], 'contour');
+  const synthMotion = { transition: p.harmony.fade, stability: 90 };
+  return {
+    version: 2, profile: p.id, volume, scale, tuning,
+    synth, instrument, synthMotion, speed: 1,
+    synthLevel: p.mix.body * volume, instrumentLevel: p.mix.lead * volume, greetingLevel: 0,
+    slots: [
+      { id: 'foundation', kind: e.foundationKind, patch: synth, level: p.mix.body * volume, motion: synthMotion },
+      { id: 'contour', kind: 'instrument', patch: instrument, level: p.mix.lead * volume },
+      { id: 'detail', kind: 'instrument', patch: makePatch(p.detail[0], 'detail'), level: p.mix.detail * volume },
+      { id: 'accompaniment', kind: 'instrument', patch: makePatch(e.accompaniment[0], 'accompaniment'), level: e.levels.accompaniment * volume },
+      { id: 'bass', kind: 'instrument', patch: makePatch(e.bass[0], 'bass'), level: e.levels.bass * volume },
+      { id: 'texture', kind: e.textureKind, patch: makePatch(e.texture[0], 'texture'), level: e.levels.texture * volume },
+      { id: 'percussion', kind: 'instrument', patch: makePatch('soft-kick', 'percussion'), level: e.levels.percussion * volume },
+      { id: 'counter', kind: e.counterKind ?? 'instrument', patch: makePatch(e.counter[0], 'counter'), level: e.levels.counter * volume },
+    ],
   };
-  for (const slot of c.slots) {
-    const lane = slot.kind, p = slot.patch;
-    if (lane === 'synth') slot.motion = {
-      transition: limit(slot.motion?.transition ?? 4.5, 1, 8),
-      stability: limit(slot.motion?.stability ?? 78, 0, 100),
-    };
-    if (!PRESETS.some((x) => x.id === p.preset && x.kind === lane))
-      throw Error('Preset no válido');
-    p.notes = [
-      ...new Set(
-        p.notes.filter((n) => Number.isInteger(n) && n >= 0 && n < 12),
-      ),
-    ].sort((a, b) => a - b);
-    if (!p.notes.length) throw Error('Selecciona al menos una nota');
-    p.octaves = [
-      Math.round(limit(p.octaves[0], 1, 6)),
-      Math.round(limit(p.octaves[1], 1, 6)),
-    ].sort((a, b) => a - b) as [number, number];
-    p.tuning = limit(p.tuning, 392, 494);
-    for (const effect of [p.delay, p.reverb, p.chorus, p.envelope])
-      for (const key of Object.keys(effect))
-        if (key !== 'on')
-          (effect as unknown as Record<string, number>)[key] = limit(
-            (effect as unknown as Record<string, number>)[key],
-            0,
-            100,
-          );
-    p.velocity = {
-      range: limit(p.velocity.range, 0, 127),
-      center: limit(p.velocity.center, 0, 127),
-    };
-  }
-  c.speed = limit(c.speed, 0.25, 2);
-  c.synthLevel = limit(c.synthLevel, 0, 1);
-  c.instrumentLevel = limit(c.instrumentLevel, 0, 1);
-  c.greetingLevel = limit(c.greetingLevel, 0, 1);
-  // Compatibility views for the original Organic strategy and older callers.
-  for (const kind of ['synth', 'instrument'] as const) {
-    const slot = c.slots.find((s) => s.kind === kind);
-    c[kind] = slot?.patch ?? copyPatch(kind === 'synth' ? 'healing' : 'harp');
-    c[kind === 'synth' ? 'synthLevel' : 'instrumentLevel'] = slot?.level ?? 0;
-    if (kind === 'synth' && slot?.motion) c.synthMotion = slot.motion;
-  }
-  c.version = 1;
-  return c;
 }
 export function notePool(p: Patch) {
   const hits = preset(p.preset).percussion;
@@ -374,29 +347,11 @@ export function notePool(p: Patch) {
   return notes;
 }
 
-/** A short, luminous response; independent of the instrument's long effect tails. */
-export function greetingPatch(instrument: Patch): Patch {
-  return {
-    ...instrument,
-    delay: { on: true, wet: 12, rate: 92 },
-    reverb: { on: true, wet: 18, amount: 20 },
-    chorus: { on: true, depth: 12, rate: 18 },
-    envelope: { on: true, attack: 0, release: 10 },
-  };
-}
-
-export const allowedPresets = (slot: MoodSlot) => PRESETS.filter((p) =>
-  p.kind === slot.kind && (!slot.families || slot.families.includes(p.family)));
-export const soundSlots = (config: Configuration): SoundSlot[] => config.slots ??
-  mood(config.mood).slots.map((s) => ({ id: s.id, kind: s.kind,
-    ...(s.kind === 'synth' ? { motion: config.synthMotion } : {}),
-    patch: mood(config.mood).id === 'organic' ? config[s.kind] : copyPatch(s.defaultPreset),
-    level: mood(config.mood).id === 'organic' ? config[s.kind === 'synth' ? 'synthLevel' : 'instrumentLevel'] : s.level }));
+export const soundSlots = (config: Configuration): SoundSlot[] =>
+  config.slots ?? sanitizeConfiguration(config).slots!;
 export function audioChannels(config: Configuration) {
-  const slots = soundSlots(config);
-  const source = slots.find((s) => s.kind === 'instrument') ?? slots[0];
-  return [
-    ...slots,
-    { id: '$greeting', kind: 'greeting' as const, patch: greetingPatch(source.patch), level: config.greetingLevel },
-  ];
+  // Keep the silent final bus for the existing JS/native renderer protocol.
+  return [...soundSlots(config), {
+    id: '$greeting', kind: 'greeting' as const, patch: config.instrument, level: 0,
+  }];
 }

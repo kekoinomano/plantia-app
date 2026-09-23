@@ -47,3 +47,5 @@ example
 /modules/*/android/.cxx/
 /modules/*/android/.gradle/
 /modules/*/android/.kotlin/
+/output/
+/inspiration/

@@ -1,9 +1,9 @@
 export * from './presets.ts';
 export * from './signal.ts';
-export * from './gesture.ts';
-export * from './composer.ts';
+export * from './music-types.ts';
 export * from './dsp.ts';
 export * from './synth-voices.ts';
-export * from './moods.ts';
-export * from './intent.ts';
-export * from './rules/index.ts';
+export * from './focus.ts';
+export * from './orchestration.ts';
+export { WaveComposer } from '../wave-music/composer';
+export { WAVE_MOODS, waveMood } from '../wave-music/registry';

@@ -1,6 +1,6 @@
 import { requireOptionalNativeModule } from "expo";
-import { prepareVoice, type Bank, type Sample } from "../sonora/dsp";
-import type { Event, Lane } from "../sonora/composer";
+import { prepareVoice, modelId, type Bank, type Sample } from "../sonora/dsp";
+import type { Event, Lane } from "../sonora/music-types";
 import { audioChannels, type Configuration, type Patch } from "../sonora/presets";
 
 type Module = {
@@ -79,7 +79,7 @@ export class NativePcmCore {
           channel, v.stop, v.attack, v.release,
           v.sample ? this.samples.get(v.sample)! : 0, v.sample2 ? this.samples.get(v.sample2)! : 0,
           v.increment, v.increment2, v.detuneRatio, v.frequency, v.attenuation, v.panL, v.panR, v.gain,
-          e.note.color, e.note.pan, v.model === "bowl" ? 2 : v.model ? 1 : 0,
+          e.note.color, e.note.pan, modelId(v.model),
           Math.max(0, families.indexOf(v.design.family)), v.design.evolution, v.design.decay,
           v.design.blend, v.design.trace, ...v.harmonics, ...v.ratios, v.phase, v.phase2]);
       }

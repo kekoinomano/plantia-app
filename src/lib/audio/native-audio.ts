@@ -2,11 +2,13 @@ import { Platform } from "react-native";
 import { AudioContext, AudioManager, PlaybackNotificationManager } from "react-native-audio-api";
 import type { PlantPacket } from "../plant-packet";
 import { sanitizeConfiguration, type Configuration } from "../sonora/presets";
-import { Composer, type Lane } from "../sonora/composer";
-import { createSignalAccumulator, GAP_SECONDS } from "../sonora/signal";
+import { GAP_SECONDS } from "../sonora/signal";
 import type { Bank } from "../sonora/dsp";
 import { SampleBank } from "./bank";
 import { NativeSynth } from "./native-synth";
+import { WaveComposer } from "../wave-music/composer";
+import { waveMood } from "../wave-music/registry";
+import { publishWaveInspection } from "../wave-music/inspection";
 
 type Settings = { config: Configuration; bank: Bank };
 
@@ -14,14 +16,16 @@ type Settings = { config: Configuration; bank: Bank };
 export class NativeAudio {
   private context: AudioContext | null = null;
   private synth: NativeSynth | null = null;
-  private composer: Composer | null = null;
-  private signal: ReturnType<typeof createSignalAccumulator> | null = null;
+  private waves: WaveComposer | null = null;
   private bank = new SampleBank();
   private currentSettings: Settings | null = null;
   private subscriptions: { remove(): void }[] = [];
-  private lastSequence = -1;
+  private lastDecisionRevision = -1;
+  private lastDecisionTime = -Infinity;
+  private lastInspectionRevision = -1;
   private closed = false;
   private playing = false;
+  private muted = false;
   private resumeAfterInterruption = false;
   private configureVersion = 0;
   private queue = Promise.resolve();
@@ -69,16 +73,16 @@ export class NativeAudio {
     AudioManager.observeAudioInterruptions(true);
     this.subscriptions = [
       PlaybackNotificationManager.addEventListener("playbackNotificationPlay", () => {
-        void this.setPlaying(true).catch(this.onError);
+        void this.setMuted(false).catch(this.onError);
       }),
       PlaybackNotificationManager.addEventListener("playbackNotificationPause", () => {
-        void this.setPlaying(false).catch(this.onError);
+        void this.setMuted(true).catch(this.onError);
       }),
       PlaybackNotificationManager.addEventListener("playbackNotificationStop", this.onStop),
       PlaybackNotificationManager.addEventListener("playbackNotificationDismissed", this.onStop),
       AudioManager.addSystemEventListener("routeChange", (event) => {
         if (event.reason === "OldDeviceUnavailable")
-          void this.setPlaying(false).catch(this.onError);
+          void this.setMuted(true).catch(this.onError);
       }),
       AudioManager.addSystemEventListener("interruption", (event) => {
         if (event.type === "began") {
@@ -95,19 +99,40 @@ export class NativeAudio {
     await context.resume();
     if (this.closed) return;
     this.playing = true;
+    this.muted = false;
     this.onPlaying(true);
   }
 
   private resetComposition() {
     if (!this.currentSettings) return;
-    this.composer = new Composer(this.currentSettings.config);
-    this.lastSequence = -1;
-    this.signal = createSignalAccumulator((frame) => {
-      if (!this.context || !this.composer || this.context.currentTime - frame.time > GAP_SECONDS) return;
-      this.composer.advance(frame.time);
-      this.composer.push(frame);
-      this.synth?.events(this.composer.drain());
-    });
+    this.waves?.finish(this.context?.currentTime ?? 0);
+    this.waves = null;
+    this.lastDecisionRevision = -1;
+    this.lastDecisionTime = -Infinity;
+    this.lastInspectionRevision = -1;
+    publishWaveInspection(null);
+    const config = this.currentSettings.config;
+    const mood = waveMood(config.profile);
+    if (mood) {
+      this.waves = new WaveComposer(config, mood, () => {
+        if (!this.context || !this.playing || this.closed) return;
+        this.waves?.advance(this.context.currentTime);
+        this.synth?.events(this.waves?.drain() ?? []);
+        this.publishInspection();
+      }, error => {
+        void this.setPlaying(false).catch(this.onError);
+        this.onError(error);
+      });
+      this.publishInspection();
+      return;
+    }
+    throw new Error(`Mood de ondas no registrado: ${config.profile}`);
+  }
+
+  private publishInspection() {
+    if (!this.waves || this.waves.revisionId === this.lastInspectionRevision) return;
+    this.lastInspectionRevision = this.waves.revisionId;
+    publishWaveInspection({ ...this.waves.inspection, queueSeconds: this.synth?.diagnostics.queuedSeconds ?? 0 });
   }
 
   async configure(input: Configuration) {
@@ -125,42 +150,55 @@ export class NativeAudio {
       }, () => {
         if (!this.context || !this.playing) return;
         const now = this.context.currentTime;
-        this.signal?.advance(now * 1000);
-        this.composer?.advance(now);
-        this.synth?.events(this.composer?.drain() ?? []);
+        const music = this.waves;
+        music?.advance(now);
+        this.synth?.events(music?.drain() ?? []);
+        this.publishInspection();
       });
       this.resetComposition();
     } else {
-      this.composer?.configure(config, this.context.currentTime);
+      const now = this.context.currentTime;
+      const switchingEngine = !this.waves || current?.config.profile !== config.profile;
+      if (switchingEngine) {
+        const previous = this.waves;
+        previous?.finish(now);
+        this.synth.events(previous?.drain() ?? []);
+        this.resetComposition();
+      } else (this.waves)?.configure(config, now);
       this.synth.configure(config, bank);
-      this.synth.events(this.composer?.drain() ?? []);
+      this.synth.events((this.waves)?.drain() ?? []);
     }
   }
 
   push(packet: PlantPacket) {
     if (!this.context || !this.playing || this.closed) return;
-    if (packet.error || !packet.values || packet.values.length !== 10 ||
-      !packet.values.every(Number.isFinite) || !Number.isSafeInteger(packet.seq) ||
-      packet.seq <= this.lastSequence) return;
-    this.lastSequence = packet.seq;
-    const now = this.context.currentTime;
-    try {
-      this.synth?.activity(now + GAP_SECONDS);
-      // Timestamp analysis with the hardware clock. The PCM adapter maps whole
-      // event batches to the next unwritten samples, preserving musical offsets.
-      this.signal?.push({ ...packet, elapsed_ms: now * 1000 });
-    } catch (error) {
-      void this.setPlaying(false).catch(this.onError);
-      this.onError(error);
+    if (this.waves) {
+      const now = this.context.currentTime;
+      try {
+        if (this.waves.push(packet, now)) this.synth?.activity(now + GAP_SECONDS);
+        this.waves.advance(now);
+        this.synth?.events(this.waves.drain());
+        this.publishInspection();
+        if (this.waves.revisionId !== this.lastDecisionRevision && now - this.lastDecisionTime >= 0.75) {
+          const decision = this.waves.diagnostics;
+          this.lastDecisionRevision = decision.revision; this.lastDecisionTime = now;
+          console.info('[Plantia Music]', JSON.stringify({ event: 'LISTEN', ...decision }));
+        }
+      } catch (error) {
+        void this.setPlaying(false).catch(this.onError);
+        this.onError(error);
+      }
+      return;
     }
   }
 
   preview(lane: string) {
-    if (!this.context || !this.playing || this.closed || !this.composer) return;
+    const music = this.waves;
+    if (!this.context || !this.playing || this.closed || !music) return;
     try {
       const now = this.context.currentTime;
-      this.composer.audition(lane, now);
-      const events = this.composer.drain();
+      music.audition(lane, now);
+      const events = music.drain();
       const end = Math.max(now, ...events.map((e) => e.type === "note" ? e.time + e.note.duration + 3.6 : e.time));
       this.synth?.activity(end + 0.05);
       this.synth?.events(events);
@@ -181,6 +219,8 @@ export class NativeAudio {
       } else {
         this.playing = false;
         this.onPlaying(false);
+        this.waves?.finish(this.context.currentTime);
+        publishWaveInspection(null);
         this.synth?.silence();
         // Only transport pause/stop waits for a short fade, never audio refill.
         if (!interruption) await new Promise((resolve) => setTimeout(resolve, 40));
@@ -190,8 +230,20 @@ export class NativeAudio {
       }
       if (this.closed) return;
       this.playing = value;
-      this.onPlaying(value);
-      await PlaybackNotificationManager.show({ state: value ? "playing" : "paused" });
+      this.onPlaying(value && !this.muted);
+      await PlaybackNotificationManager.show({ state: value && !this.muted ? "playing" : "paused" });
+    });
+    this.queue = operation;
+    return operation;
+  }
+
+  setMuted(value: boolean): Promise<void> {
+    const operation = this.queue.catch(() => {}).then(async () => {
+      if (!this.context || this.closed || !this.playing || this.muted === value) return;
+      this.muted = value;
+      this.synth?.setMuted(value);
+      this.onPlaying(!value);
+      await PlaybackNotificationManager.show({ state: value ? "paused" : "playing" });
     });
     this.queue = operation;
     return operation;
@@ -200,6 +252,8 @@ export class NativeAudio {
   async close() {
     if (this.closed) return;
     this.closed = true;
+    this.waves?.finish(this.context?.currentTime ?? 0);
+    publishWaveInspection(null);
     this.configureVersion++;
     await this.starting?.catch(() => {});
     this.subscriptions.forEach((s) => s.remove());
@@ -213,11 +267,11 @@ export class NativeAudio {
     await this.context?.close();
     this.context = null;
     this.synth = null;
-    this.composer = null;
-    this.signal = null;
+    this.waves = null;
     this.currentSettings = null;
     this.bank = new SampleBank();
     this.playing = false;
+    this.muted = false;
     this.onPlaying(false);
     AudioManager.observeAudioInterruptions(false);
     await PlaybackNotificationManager.hide();

@@ -2,8 +2,9 @@ import { PermissionsAndroid, Platform } from "react-native";
 import { BleManager, State, type Device, type Subscription } from "react-native-ble-plx";
 import { decodePlantPacket, type PlantPacket } from "./plant-packet";
 
-export const PLANT_SERVICE = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
-export const PLANT_CHARACTERISTIC = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+// Deben coincidir con SERVICE_UUID y DATA_UUID del firmware hardware/arduino/v2.
+export const PLANT_SERVICE = "df7167d3-4595-4d3e-b28d-f20ae4c87cdc";
+export const PLANT_CHARACTERISTIC = "05cdaa8c-62b1-459e-a07f-1e4167b443c5";
 
 export type DiscoveredDevice = {
   id: string;
@@ -12,9 +13,9 @@ export type DiscoveredDevice = {
   plant: boolean;
 };
 
-const isPlant = (device: Device) => (device.serviceUUIDs ?? []).includes(PLANT_SERVICE);
-const isNamedPlantia = (device: Device) =>
-  [device.name, device.localName].some((name) => name?.trim().toLowerCase() === "plantia");
+// Solo aceptamos el servicio anunciado por nuestro firmware, independientemente del nombre.
+const isPlant = (device: Device) =>
+  (device.serviceUUIDs ?? []).some((uuid) => uuid.toLowerCase() === PLANT_SERVICE);
 
 export class PlantConnection {
   private manager = new BleManager();
@@ -77,7 +78,7 @@ export class PlantConnection {
 
   private list(): DiscoveredDevice[] {
     return [...this.found.values()]
-      .filter(isNamedPlantia)
+      .filter(isPlant)
       .map((device) => ({
         id: device.id,
         name: "Plantia",
@@ -97,14 +98,16 @@ export class PlantConnection {
     if (this.closed || this.scanning) return;
     this.scanning = true;
     this.found.clear();
-    this.manager.startDeviceScan(null, { allowDuplicates: false }, (error, device) => {
+    onDevices([]);
+    // Bluetooth filtra por el UUID del servicio; además lo comprobamos al recibir cada resultado.
+    this.manager.startDeviceScan([PLANT_SERVICE], { allowDuplicates: false }, (error, device) => {
       if (this.closed || !this.scanning) return;
       if (error) {
         this.stopDiscovery();
         onError(error.message || "No se pudo buscar dispositivos Bluetooth.");
         return;
       }
-      if (!device || !isNamedPlantia(device) || this.found.has(device.id)) return;
+      if (!device || !isPlant(device) || this.found.has(device.id)) return;
       this.found.set(device.id, device);
       onDevices(this.list());
     });
@@ -119,27 +122,68 @@ export class PlantConnection {
   async connectTo(
     id: string,
     onPacket: (packet: PlantPacket) => void,
-    onDisconnect: () => void,
+    onDisconnect: (message?: string) => void,
   ) {
     const target = this.found.get(id) ?? null;
     this.stopDiscovery();
     if (this.closed) throw new Error("Conexión cancelada.");
     if (!target) throw new Error("Ese sensor dejó de estar disponible. Vuelve a buscarlo.");
-    const connected = await target.connect({ timeout: 12000, requestMTU: 247 });
+    const connected = await target.connect({
+      timeout: 12000,
+      requestMTU: 247,
+      // El mismo ESP32 ahora tiene otros UUID. Android puede conservar el GATT antiguo.
+      ...(Platform.OS === "android" ? { refreshGatt: "OnConnected" as const } : {}),
+    });
+    return this.finishConnection(connected, onPacket, onDisconnect);
+  }
+
+  async connectKnown(
+    id: string,
+    onPacket: (packet: PlantPacket) => void,
+    onDisconnect: (message?: string) => void,
+  ) {
+    this.stopDiscovery();
+    if (this.closed) throw new Error("Conexión cancelada.");
+    const connected = await this.manager.connectToDevice(id, {
+      timeout: 12000,
+      requestMTU: 247,
+      ...(Platform.OS === "android" ? { refreshGatt: "OnConnected" as const } : {}),
+    });
+    return this.finishConnection(connected, onPacket, onDisconnect);
+  }
+
+  private async finishConnection(
+    connected: Device,
+    onPacket: (packet: PlantPacket) => void,
+    onDisconnect: (message?: string) => void,
+  ) {
     this.device = connected;
     if (this.closed) {
       await connected.cancelConnection();
       throw new Error("Conexión cancelada.");
     }
-    await connected.discoverAllServicesAndCharacteristics();
-    if (this.closed) throw new Error("Conexión cancelada.");
-    let seq = 0;
-    const origin = performance.now();
+    console.info("[Plantia BLE] Conectado; descubriendo servicios", connected.id);
     this.subscriptions.push(
-      connected.onDisconnected(() => {
+      connected.onDisconnected((error) => {
+        console.info("[Plantia BLE] Desconectado", error);
         if (!this.closed) onDisconnect();
       }),
     );
+    await connected.discoverAllServicesAndCharacteristics();
+    if (this.closed) throw new Error("Conexión cancelada.");
+    const services = await connected.services();
+    if (!services.some((service) => service.uuid.toLowerCase() === PLANT_SERVICE)) {
+      throw new Error("El sensor no ofrece el servicio de Plantia v2. Actualiza el firmware y vuelve a conectar.");
+    }
+    const characteristics = await connected.characteristicsForService(PLANT_SERVICE);
+    if (!characteristics.some((characteristic) =>
+      characteristic.uuid.toLowerCase() === PLANT_CHARACTERISTIC && characteristic.isNotifiable)) {
+      throw new Error("El sensor no ofrece el canal de datos de Plantia v2. Actualiza el firmware y vuelve a conectar.");
+    }
+    if (this.closed) throw new Error("Conexión cancelada.");
+    let seq = 0;
+    const origin = performance.now();
+    console.info("[Plantia BLE] Activando notificaciones", PLANT_CHARACTERISTIC);
     this.subscriptions.push(
       connected.monitorCharacteristicForService(
         PLANT_SERVICE,
@@ -147,7 +191,8 @@ export class PlantConnection {
         (error, value) => {
           if (this.closed) return;
           if (error) {
-            onDisconnect();
+            console.warn("[Plantia BLE] Error al recibir notificaciones", error);
+            onDisconnect(`No se pudieron recibir los datos del sensor: ${error.reason || error.message} (BLE ${error.errorCode}).`);
             return;
           }
           if (value?.value)

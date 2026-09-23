@@ -1,165 +1,216 @@
-import { memo, useEffect, useId, useRef } from "react";
-import { AppState, StyleSheet, View } from "react-native";
-import Svg, { Circle, ClipPath, Defs, G, Path, Rect } from "react-native-svg";
-import Animated, {
-  useAnimatedProps,
-  useFrameCallback,
-  useSharedValue,
-} from "react-native-reanimated";
-import type { SignalPoint } from "@/lib/plant-session";
-import { colors } from "./plantia-theme";
-
+import { useIsFocused } from 'expo-router';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState, StyleSheet, Text, View } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Svg, { Path } from 'react-native-svg';
+import Animated, { runOnJS, useAnimatedProps, useAnimatedStyle, useFrameCallback, useSharedValue } from 'react-native-reanimated';
+import { plantSession, usePlantSessionValue, type SignalPoint } from '@/lib/plant-session';
+import { INITIAL_SIGNAL_TIMING, SIGNAL_WINDOW_MS, type SignalTiming } from '@/lib/signal-chart';
+import { curveAt, curveExtrema, prepareSignalCurve, rasterSignalPath, rasterCursor, type SignalCurve } from '@/lib/signal-curve';
+import { colors } from './plantia-theme';
 const AnimatedPath = Animated.createAnimatedComponent(Path);
-// SVG's native matrix is accepted by G.setNativeProps, but omitted from GProps.
-const AnimatedGroup = Animated.createAnimatedComponent(G<{ matrix?: number[] }>);
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
-const WIDTH = 320;
-const HEIGHT = 170;
-const WINDOW_MS = 5000;
-const REVEAL_DELAY_MS = 250;
-type Segment = { x1: number; x2: number; y1: number; y2: number; c1: number; c2: number };
-const EMPTY = { path: "", anchor: 0, segments: [] as Segment[] };
+const WIDTH = 320, HEIGHT = 170;
+const PLOT_LEFT = 4, PLOT_RIGHT = WIDTH - 6, PLOT_WIDTH = PLOT_RIGHT - PLOT_LEFT;
+const EMPTY_CURVE: SignalCurve = { reference: 0, vertices: [], treeSize: 1, minima: [Infinity, Infinity], maxima: [-Infinity, -Infinity] };
+const EMPTY = { ...EMPTY_CURVE, anchor: 0, now: 0, latest: 0, packetMs: 200, delayMs: 250 };
+const MIN_WINDOW_MS = 1000, MAX_WINDOW_MS = 10000;
 
-export const SignalChart = memo(function SignalChart({ points, live, waiting }: {
-  points: SignalPoint[];
-  live: boolean;
-  waiting: boolean;
+/** Only the chart subscriber renders on incoming packets. */
+export function LiveSignalChart({ waiting, accent = colors.green }: { waiting: boolean; accent?: string }) {
+  const live = usePlantSessionValue(s => s.signal === 'live');
+  const focused = useIsFocused();
+  // Stop the off-screen frame callback while the laboratory is open.
+  return focused ? <SignalChart stream live={live} waiting={waiting} accent={accent} /> : null;
+}
+const NO_POINTS: SignalPoint[] = [];
+export const SignalChart = memo(function SignalChart({ points = NO_POINTS, live, waiting, timing = INITIAL_SIGNAL_TIMING, stream = false, accent = colors.green }: {
+  points?: SignalPoint[]; live: boolean; waiting: boolean; timing?: SignalTiming; stream?: boolean; accent?: string;
 }) {
-  const clipId = `signal-${useId().replace(/:/g, "")}`;
-  const shape = useSharedValue(EMPTY);
-  const clock = useSharedValue(0);
-  const active = useSharedValue(AppState.currentState === "active");
+  const [layoutWidth, setLayoutWidth] = useState(WIDTH);
+  const [windowMs, setWindowMs] = useState(SIGNAL_WINDOW_MS);
+  const shape = useSharedValue(EMPTY), clock = useSharedValue(0);
+  const drawnPath = useSharedValue('');
+  const showCursor = useSharedValue(false);
+  const tile = useSharedValue({ end: 0, mean: 0, range: 1000, window: SIGNAL_WINDOW_MS, anchor: -1, builtAt: 0 });
+  const transform = useSharedValue({ x: 0, y: -170, sx: 1, sy: 1, cursorY: 85, cursorOpacity: 0 });
+  const foreground = useRef(AppState.currentState === 'active');
+  const active = useSharedValue(foreground.current);
   const running = useSharedValue(false);
-  const scale = useRef<{ low: number; high: number } | null>(null);
-
+  const horizontalWindow = useSharedValue(SIGNAL_WINDOW_MS);
+  const pinchStart = useSharedValue(SIGNAL_WINDOW_MS);
+  const verticalAmplitude = useSharedValue(1000);
+  const targetAmplitude = useSharedValue(1000);
+  const nextScaleAt = useSharedValue(0);
+  const presentationDelay = useSharedValue(250);
+  const lastPaintAt = useSharedValue(0);
+  const initializedRange = useSharedValue(false);
+  const needsAnchor = useRef(true);
+  const redraw = useRef<() => void>(() => {});
+  const commitWindow = useCallback((value: number) => setWindowMs(Math.round(value / 100) * 100), []);
+  const pinch = useMemo(() => Gesture.Pinch()
+    .onStart(() => { pinchStart.value = horizontalWindow.value; })
+    .onUpdate(event => {
+      horizontalWindow.value = Math.max(MIN_WINDOW_MS, Math.min(MAX_WINDOW_MS, pinchStart.value / event.scale));
+    })
+    .onEnd(() => { runOnJS(commitWindow)(horizontalWindow.value); }),
+  [commitWindow, horizontalWindow, pinchStart]);
   useEffect(() => {
-    const subscription = AppState.addEventListener("change", (state) => {
-      active.value = state === "active";
+    const sub = AppState.addEventListener('change', state => {
+      foreground.current = state === 'active';
+      active.value = foreground.current;
+      if (state === 'active') { needsAnchor.current = true; redraw.current(); }
+
     });
-    return () => subscription.remove();
+    return () => sub.remove();
   }, [active]);
-  useEffect(() => { running.value = live || waiting; }, [live, waiting, running]);
-
+  useEffect(() => { running.value = live || waiting; showCursor.value = live; }, [live, waiting, running, showCursor]);
   useEffect(() => {
+    // The stream has an imperative, capped publication channel. Packet updates
+    // never render React controls or reconcile a tree of animated SVG elements.
     const update = () => {
-      if (!points.length) {
-        scale.current = null;
+      const snapshot = stream ? plantSession.getSnapshot() : null;
+      const sourcePoints = snapshot?.points ?? points;
+      const sourceTiming = snapshot?.signalTiming ?? timing;
+      if (!sourcePoints.length) {
+        shape.value = EMPTY; drawnPath.value = ''; needsAnchor.current = true; initializedRange.value = false;
+        nextScaleAt.value = 0;
+        tile.value = { end: 0, mean: 0, range: 1000, window: SIGNAL_WINDOW_MS, anchor: -1, builtAt: 0 }; return;
       }
-      const now = performance.now();
-      const wallNow = Date.now();
-      const visibleEnd = now - REVEAL_DELAY_MS;
-      const data = points.filter((point) =>
-        point.time >= visibleEnd - WINDOW_MS && point.time <= visibleEnd,
-      );
-      // Only real, currently visible samples set the scale, never gap fillers
-      // or buffered future peaks. Refresh even when no packet arrives.
-      const values = data.map((point) => point.value);
-      if (values.length) {
-        const min = Math.min(...values), max = Math.max(...values);
-        // Padding depends on variation, never on the absolute sensor baseline.
-        const padding = Math.max(0.000001, (max - min) * 0.12);
-        const previous = scale.current;
-        // Refit both bounds on overflow so a shifted signal cannot hug an edge.
-        if (!previous || max - min < (previous.high - previous.low) * 0.5 ||
-            min < previous.low || max > previous.high) {
-          scale.current = { low: min - padding, high: max + padding };
-        }
+      const curve = prepareSignalCurve(sourcePoints);
+      const now = performance.now(), wallNow = Date.now();
+      const latest = sourcePoints[sourcePoints.length - 1].time;
+      if (needsAnchor.current) {
+        clock.value = Math.max(sourcePoints[0].time, Math.min(latest, now - sourceTiming.delayMs));
+        presentationDelay.value = sourceTiming.delayMs;
+        lastPaintAt.value = 0;
+        nextScaleAt.value = 0;
+        needsAnchor.current = false;
       }
-      const { low, high } = scale.current ?? { low: -1, high: 1 };
-      const readings = data.map((point) => ({
-        x: WIDTH - (now - REVEAL_DELAY_MS - point.time) * WIDTH / WINDOW_MS,
-        y: Math.max(10, Math.min(HEIGHT - 10, HEIGHT - 14 - (point.value - low) / Math.max(0.000001, high - low) * (HEIGHT - 28))),
-        time: point.time,
-      }));
-      const neutral = (time: number) => ({
-        x: WIDTH - (visibleEnd - time) * WIDTH / WINDOW_MS,
-        y: HEIGHT / 2, time,
-      });
-      const vertices = [] as typeof readings;
-      if (!readings.length || readings[0].time > visibleEnd - WINDOW_MS + 600)
-        vertices.push(neutral(visibleEnd - WINDOW_MS));
-      for (const point of readings) {
-        const last = vertices[vertices.length - 1];
-        if (last && point.time - last.time > 600) {
-          vertices.push(neutral(last.time + 300), neutral(point.time - 150));
-        }
-        vertices.push(point);
-      }
-      const last = vertices[vertices.length - 1];
-      if (last && visibleEnd - last.time > 600)
-        vertices.push(neutral(last.time + 300));
-      // Keep the leading point present, including while waiting for the next
-      // packet. Short gaps hold the last reading; longer gaps return to centre.
-      const tip = vertices[vertices.length - 1];
-      vertices.push({ ...neutral(now + 300), y: tip?.y ?? HEIGHT / 2 });
-      let path = "";
-      const segments: Segment[] = [];
-      for (let i = 0; i < vertices.length; i++) {
-        const point = vertices[i];
-        const a = vertices[i - 1];
-        if (!a) {
-          path += `M${point.x.toFixed(2)},${point.y.toFixed(2)}`;
-          continue;
-        }
-        // Bounded curves soften the trace without adding peaks between readings.
-        const before = vertices[Math.max(0, i - 2)];
-        const after = vertices[Math.min(vertices.length - 1, i + 1)];
-        const lower = Math.min(a.y, point.y), upper = Math.max(a.y, point.y);
-        const c1 = Math.max(lower, Math.min(upper, a.y + (point.y - before.y) / 6));
-        const c2 = Math.max(lower, Math.min(upper, point.y - (after.y - a.y) / 6));
-        const dx = (point.x - a.x) / 3;
-        segments.push({ x1: a.x, x2: point.x, y1: a.y, y2: point.y, c1, c2 });
-        path += `C${(a.x + dx).toFixed(2)},${c1.toFixed(2)} ${(point.x - dx).toFixed(2)},${c2.toFixed(2)} ${point.x.toFixed(2)},${point.y.toFixed(2)}`;
-      }
-      // Rebase geometry and its timestamp together. The UI clock uses the same
-      // wall-time origin, never a separately accumulated frame counter.
-      shape.value = { path, anchor: wallNow, segments: segments.slice(-12) };
-      clock.value = wallNow;
+      shape.value = { ...curve, anchor: wallNow, now, latest,
+        packetMs: sourceTiming.packetMs, delayMs: sourceTiming.delayMs };
     };
-    update();
-    const timer = setInterval(() => {
-      if (active.value && (live || waiting)) update();
-    }, 100);
-    return () => clearInterval(timer);
-  }, [points, live, waiting, active, shape, clock]);
-
-  // Only translate the existing path at 30 fps. No path construction, sample
-  // interpolation or React renders on each animation frame.
-  useFrameCallback(() => {
-    if (!active.value || !running.value || !shape.value.anchor) return;
-    const now = Date.now();
-    if (now - clock.value >= 32) clock.value = now;
-  });
-  const groupProps = useAnimatedProps(() => ({
-    matrix: [1, 0, 0, 1, -Math.max(0, clock.value - shape.value.anchor) * WIDTH / WINDOW_MS, 0] as [number, number, number, number, number, number],
-  }));
-  const lineProps = useAnimatedProps(() => ({ d: shape.value.path }));
-  const cursorProps = useAnimatedProps(() => {
-    const x = WIDTH + Math.max(0, clock.value - shape.value.anchor) * WIDTH / WINDOW_MS;
-    for (const segment of shape.value.segments) {
-      if (x < segment.x1 || x > segment.x2 || segment.x2 <= segment.x1) continue;
-      const t = (x - segment.x1) / (segment.x2 - segment.x1), u = 1 - t;
-      return { cy: u * u * u * segment.y1 + 3 * u * u * t * segment.c1 + 3 * u * t * t * segment.c2 + t * t * t * segment.y2, opacity: 1 };
+    const publish = () => { if (foreground.current) update(); };
+    redraw.current = update;
+    publish();
+    if (stream) return plantSession.subscribeGraph(publish);
+  }, [stream, points, timing, shape, drawnPath, clock, presentationDelay, lastPaintAt, initializedRange, nextScaleAt, tile]);
+  useFrameCallback(frame => {
+    if (!active.value || !shape.value.anchor) return;
+    // Advance playback at most 60 times/s, including on 120 Hz displays. Use wall time
+    // for playback so missed frames never create a queue of old measurements.
+    const sincePaint = frame.timestamp - lastPaintAt.value;
+    if (lastPaintAt.value && sincePaint < 15.9) return;
+    const elapsed = lastPaintAt.value ? Math.max(0, sincePaint) : 16;
+    lastPaintAt.value = frame.timestamp;
+    const s = shape.value;
+    if (running.value) {
+      const difference = s.delayMs - presentationDelay.value;
+      // Adapt gently, but discard an obsolete slow-sensor reserve immediately
+      // when reception accelerates. Excess lag must never accumulate for seconds.
+      presentationDelay.value = Math.min(s.delayMs + Math.max(150, s.delayMs * 0.1),
+        presentationDelay.value + Math.max(-elapsed * 0.5, Math.min(elapsed * 0.25, difference)));
+      const desired = s.now + (Date.now() - s.anchor) - presentationDelay.value;
+      const end = Math.max(s.vertices[0].time, Math.min(s.latest, desired));
+      if (end > clock.value) clock.value = end;
+      // When input stops, reach the final sample after just the chosen reserve,
+      // then stop exactly there (no asymptotic crawl through historical data).
     }
-    return { cy: HEIGHT / 2, opacity: 1 };
+    const end = clock.value;
+    const window = horizontalWindow.value;
+    const left = curveAt(s.vertices, end - window);
+    const right = curveAt(s.vertices, end);
+    const duration = right.duration - left.duration;
+    const mean = duration > 0 ? (right.area - left.area) / duration : right.value;
+    const extrema = curveExtrema(s, left.index + 1, right.index);
+    const peak = Math.max(0.01,
+      Math.abs(left.value - mean), Math.abs(right.value - mean),
+      Number.isFinite(extrema.low) ? Math.abs(extrema.low - mean) : 0,
+      Number.isFinite(extrema.high) ? Math.abs(extrema.high - mean) : 0);
+    const targetRange = peak * 1.18;
+    if (!initializedRange.value) {
+      verticalAmplitude.value = targetRange;
+      targetAmplitude.value = targetRange;
+      initializedRange.value = true;
+      nextScaleAt.value = frame.timestamp + 1000;
+    } else if (frame.timestamp >= nextScaleAt.value) {
+      // Re-evaluate exactly from what is visible. A large historical value no
+      // longer keeps the current trace compressed after it leaves the screen.
+      targetAmplitude.value = targetRange;
+      nextScaleAt.value = frame.timestamp + 1000;
+    }
+    const scaleDifference = targetAmplitude.value - verticalAmplitude.value;
+    verticalAmplitude.value = Math.abs(scaleDifference) < targetAmplitude.value * 0.001
+      ? targetAmplitude.value
+      : verticalAmplitude.value + scaleDifference * (1 - Math.exp(-elapsed / 180));
+    let raster = tile.value;
+    const range = verticalAmplitude.value;
+    const meanAbsolute = s.reference + mean;
+    // The SVG changes at most 8 times/s. Between updates only the cached native
+    // layer moves; there is no path parsing/tessellation on every display frame.
+    const needsRebase = raster.anchor < 0 || end - raster.end > raster.window * 0.4
+      || Math.abs(window / raster.window - 1) > 0.02
+      || Math.abs(range / raster.range - 1) > 0.05
+      || Math.abs(meanAbsolute - raster.mean) > range * 0.5;
+    if (raster.anchor < 0 || ((needsRebase || raster.anchor !== s.anchor) && frame.timestamp - raster.builtAt >= 125)) {
+      // New packets append in the same tile coordinates. Do not reset its origin
+      // on each arrival: that would make texture replacement and translation race.
+      if (needsRebase) raster = { ...raster, end, mean: meanAbsolute, range, window };
+      drawnPath.value = rasterSignalPath(s, raster.end, raster.window, raster.mean - s.reference, raster.range);
+      raster = { ...raster, anchor: s.anchor, builtAt: frame.timestamp };
+      tile.value = raster;
+    }
+    const sx = raster.window / window, sy = raster.range / range;
+    const cursor = rasterCursor(s, end, raster.window);
+    const cursorY = HEIGHT / 2 + (cursor.value - mean) * 71 / range;
+    transform.value = {
+      x: PLOT_RIGHT * (1 - sx) - (end - raster.end) * PLOT_WIDTH / window,
+      y: HEIGHT / 2 - 255 * sy + (raster.mean - meanAbsolute) * 71 / range,
+      sx, sy, cursorY,
+      cursorOpacity: showCursor.value && cursor.visible && cursorY >= 2 && cursorY <= HEIGHT - 2 ? 1 : 0,
+    };
   });
-
-  return (
-    <View style={styles.plot} accessibilityLabel={points.length ? "El pulso de tu planta" : waiting ? "Esperando la señal de tu planta" : "Sin señal"}>
-      <Svg width="100%" height={HEIGHT} viewBox={`0 0 ${WIDTH} ${HEIGHT}`} preserveAspectRatio="none">
-        <Defs><ClipPath id={clipId}><Rect x={0} y={0} width={WIDTH} height={HEIGHT} /></ClipPath></Defs>
-        <G clipPath={`url(#${clipId})`}>
-          <AnimatedGroup animatedProps={groupProps}>
-            <AnimatedPath animatedProps={lineProps} fill="none" stroke={colors.green} strokeOpacity={0.06} strokeWidth={5} strokeLinecap="round" />
-            <AnimatedPath animatedProps={lineProps} fill="none" stroke={live ? colors.green : "#A6B09F"} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" />
-          </AnimatedGroup>
-          {live && <AnimatedCircle animatedProps={cursorProps} cx={WIDTH - 1.5} r={2} fill={colors.green} />}
-        </G>
-      </Svg>
+  const lineProps = useAnimatedProps(() => ({ d: drawnPath.value }));
+  const layerStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: transform.value.x * layoutWidth / WIDTH }, { translateY: transform.value.y },
+      { scaleX: transform.value.sx }, { scaleY: transform.value.sy }],
+  }));
+  const cursorStyle = useAnimatedStyle(() => ({
+    opacity: transform.value.cursorOpacity,
+    transform: [{ translateY: transform.value.cursorY - 2 }],
+  }));
+  return <View style={styles.container}>
+    <GestureDetector gesture={pinch}>
+    <View style={styles.plot} accessible accessibilityRole="image"
+      accessibilityLabel={`Señal de tu planta. ${windowMs / 1000} segundos visibles. Escala vertical automática.`}
+      accessibilityHint="Junta o separa dos dedos para cambiar el tiempo visible">
+      <View pointerEvents="none" onLayout={event => setLayoutWidth(event.nativeEvent.layout.width)} style={StyleSheet.absoluteFill}>
+        <View style={styles.midline} />
+        <View style={[styles.viewport, { width: layoutWidth * PLOT_RIGHT / WIDTH }]}>
+          <Animated.View pointerEvents="none" renderToHardwareTextureAndroid shouldRasterizeIOS
+            style={[styles.layer, { width: layoutWidth * 2 }, layerStyle]}>
+            <Svg width={layoutWidth * 2} height={510} viewBox="0 0 640 510" preserveAspectRatio="none">
+              <AnimatedPath animatedProps={lineProps} fill="none" stroke={live ? accent : '#A6B09F'}
+                strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+            </Svg>
+          </Animated.View>
+        </View>
+        <Animated.View style={[styles.cursor, { left: layoutWidth * PLOT_RIGHT / WIDTH - 2, backgroundColor: accent }, cursorStyle]} />
+      </View>
     </View>
-  );
+    </GestureDetector>
+    <View style={styles.captionRow}>
+      <Text style={styles.caption}>SEÑAL VIVA · AUTO</Text>
+      <Text style={styles.caption}>{(windowMs / 1000).toFixed(windowMs % 1000 ? 1 : 0)} S · PINZA PARA AJUSTAR</Text>
+    </View>
+  </View>;
 });
-
 const styles = StyleSheet.create({
-  plot: { height: HEIGHT, width: "100%", marginTop: 24, marginBottom: 4, overflow: "hidden" },
+  container: { width: '100%' },
+  plot: { height: HEIGHT, overflow: 'hidden' },
+  viewport: { height: HEIGHT, overflow: 'hidden' },
+  layer: { position: 'absolute', top: 0, left: 0, height: 510, transformOrigin: 'top left' },
+  cursor: { position: 'absolute', top: 0, width: 4, height: 4, borderRadius: 2 },
+  midline: { position: 'absolute', top: HEIGHT / 2, left: 4, right: 6, height: StyleSheet.hairlineWidth, backgroundColor: colors.line, opacity: .55 },
+  captionRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
+  caption: { color: colors.muted, fontSize: 9, letterSpacing: 1.1, fontVariant: ['tabular-nums'] },
 });

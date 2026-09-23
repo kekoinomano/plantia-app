@@ -1,22 +1,26 @@
 import { AppState, Platform } from "react-native";
 import { isRunningInExpoGo } from "expo";
 import { useSyncExternalStore } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { GAP_SECONDS } from "./sonora/signal";
-import { copyPatch, defaultConfiguration, sanitizeConfiguration, soundSlots, allowedPresets, type Patch, type Configuration } from "./sonora/presets";
-import { mood } from "./sonora/moods";
+import { defaultConfiguration, sanitizeConfiguration, type Configuration } from "./sonora/presets";
+import type { ProfileId } from "./sonora/focus";
 import type { PlantPacket } from "./plant-packet";
 import type { DiscoveredDevice, PlantConnection } from "./plant-connection";
-import type { Lane } from "./sonora/composer";
+import type { Lane } from "./sonora/music-types";
 import type { NativeAudio } from "./audio/native-audio";
+import { SignalTimeline, INITIAL_SIGNAL_TIMING, type ChartPoint, type SignalTiming } from "./signal-chart";
 
-export type SignalPoint = { time: number; value: number };
+export type SignalPoint = ChartPoint;
 type Snapshot = {
   connection: "idle" | "scanning" | "connecting" | "connected" | "disconnecting";
   device: string;
   devices: DiscoveredDevice[];
+  rememberedDevices: { id: string; name: string; lastConnectedAt: number }[];
   playing: boolean;
   config: Configuration;
   points: SignalPoint[];
+  signalTiming: SignalTiming;
   lastValue: number | null;
   error: string | null;
   signal: "waiting" | "live" | "gap";
@@ -28,24 +32,69 @@ class PlantSession {
     connection: "idle",
     device: "",
     devices: [],
+    rememberedDevices: [],
     playing: false,
     config: defaultConfiguration(),
     points: [],
+    signalTiming: INITIAL_SIGNAL_TIMING,
     lastValue: null,
     error: null,
     signal: "waiting",
   };
   private listeners = new Set<() => void>();
+  private controls = this.snapshot;
+  private graphListeners = new Set<() => void>();
+  private controlListeners = new Set<() => void>();
+  subscribeGraph = (callback: () => void) => {
+    this.graphListeners.add(callback);
+    return () => { this.graphListeners.delete(callback); };
+  };
+  subscribeControls = (callback: () => void) => {
+    this.controlListeners.add(callback);
+    return () => { this.controlListeners.delete(callback); };
+  };
   private audio: NativeAudio | null = null;
   private ble: PlantConnection | null = null;
   private generation = 0;
-  private points: SignalPoint[] = [];
+  private timeline = new SignalTimeline();
   private graphRevision = 0;
   private publishedGraphRevision = 0;
   private lastPacketAt = 0;
   private graphTimer: ReturnType<typeof setInterval> | null = null;
   private appSubscription: { remove(): void } | null = null;
   private foreground = AppState.currentState === "active";
+  private static readonly STORAGE_KEY = "muromura.session.v2";
+  private moodSettings: Partial<Record<ProfileId, { scale: string; tuning: number }>> = {};
+
+  constructor() {
+    void this.hydrate();
+  }
+
+  private hydrate = async () => {
+    try {
+      const saved = JSON.parse((await AsyncStorage.getItem(PlantSession.STORAGE_KEY)) ?? "null") as {
+        config?: Configuration;
+        rememberedDevices?: Snapshot["rememberedDevices"];
+        moodSettings?: Partial<Record<ProfileId, { scale: string; tuning: number }>>;
+      } | null;
+      if (!saved) return;
+      this.moodSettings = saved.moodSettings ?? {};
+      this.update({
+        config: sanitizeConfiguration(saved.config ?? this.snapshot.config),
+        rememberedDevices: Array.isArray(saved.rememberedDevices) ? saved.rememberedDevices.slice(0, 4) : [],
+      });
+    } catch {
+      // Corrupt or unavailable local preferences should never block listening.
+    }
+  };
+
+  private persist = () => {
+    void AsyncStorage.setItem(PlantSession.STORAGE_KEY, JSON.stringify({
+      config: this.snapshot.config,
+      rememberedDevices: this.snapshot.rememberedDevices,
+      moodSettings: this.moodSettings,
+    })).catch(() => {});
+  };
 
   subscribe = (callback: () => void) => {
     this.listeners.add(callback);
@@ -54,8 +103,15 @@ class PlantSession {
     };
   };
   getSnapshot = () => this.snapshot;
+  getControls = () => this.controls;
   private update(patch: Partial<Snapshot>) {
     this.snapshot = { ...this.snapshot, ...patch };
+    if (Object.keys(patch).some(key => !['points', 'signalTiming', 'lastValue', 'signal'].includes(key))) {
+      this.controls = this.snapshot;
+      this.controlListeners.forEach(listener => listener());
+    }
+    if ('points' in patch || 'signalTiming' in patch || 'signal' in patch)
+      this.graphListeners.forEach(listener => listener());
     this.listeners.forEach((listener) => listener());
   }
   private error = (error: unknown) => {
@@ -67,7 +123,7 @@ class PlantSession {
     if (!this.foreground) return;
     const signal = !this.lastPacketAt
       ? "waiting"
-      : performance.now() - this.lastPacketAt > GAP_SECONDS * 1000
+      : performance.now() - this.lastPacketAt > Math.max(GAP_SECONDS * 1000, this.timeline.timing.gapMs)
         ? "gap"
         : "live";
     const hasNewPoints = this.graphRevision !== this.publishedGraphRevision;
@@ -76,53 +132,29 @@ class PlantSession {
     this.update({
       ...(hasNewPoints
         ? {
-            points: this.points.slice(),
+            points: this.timeline.snapshot,
+            signalTiming: this.timeline.timing,
             lastValue: this.graphLastValue,
           }
         : {}),
       signal,
     });
   };
-  private graphBucket = -1;
-  private graphSum = 0;
-  private graphCount = 0;
-  private graphLastSampleAt = 0;
   private graphLastValue: number | null = null;
   private receive = (packet: PlantPacket) => {
     this.audio?.push(packet);
+    const now = performance.now();
+    // Music receives the untouched packet. Only the graph uses reconstructed time.
+    if (!this.timeline.push(packet.values ?? [], now, packet.seq)) return;
+    this.lastPacketAt = now;
     if (!packet.values) return;
-    this.lastPacketAt = performance.now();
-    // Only the display is reduced: Sonora still receives every original packet.
-    // One averaged point per 50 ms preserves five seconds even during BLE bursts.
-    const previous = this.graphLastSampleAt || this.lastPacketAt - 200;
-    const span = Math.min(500, Math.max(0, this.lastPacketAt - previous));
-    packet.values.forEach((value, i) => {
-      const time = this.lastPacketAt - span + span * (i + 1) / packet.values!.length;
-      const bucket = Math.floor(time / 50);
-      if (bucket !== this.graphBucket) {
-        this.graphBucket = bucket;
-        this.graphSum = 0;
-        this.graphCount = 0;
-        this.points.push({ time, value });
-      }
-      this.graphSum += value;
-      this.graphCount++;
-      // Replace rather than mutate points already published to React.
-      this.points[this.points.length - 1] = {
-        time: bucket * 50,
-        value: this.graphSum / this.graphCount,
-      };
-    });
-    this.graphLastSampleAt = this.lastPacketAt;
     this.graphLastValue = packet.values[packet.values.length - 1];
-    while (this.points.length && this.points[0].time < this.lastPacketAt - 6000)
-      this.points.shift();
     this.graphRevision++;
   };
 
   private scanTimer: ReturnType<typeof setTimeout> | null = null;
 
-  connect = async () => {
+  connect = async (rememberedId?: string) => {
     if (this.snapshot.connection !== "idle") return;
     if (Platform.OS === "web") {
       this.error(new Error("Abre la app de Plantia en iOS o Android para conectar el sensor."));
@@ -133,19 +165,19 @@ class PlantSession {
       return;
     }
     const generation = ++this.generation;
-    this.points = [];
-    this.graphBucket = -1;
-    this.graphSum = 0;
-    this.graphCount = 0;
-    this.graphLastSampleAt = 0;
+    this.timeline = new SignalTimeline();
     this.graphLastValue = null;
     this.graphRevision++;
     this.lastPacketAt = 0;
     this.update({
-      connection: "scanning",
+      connection: rememberedId ? "connecting" : "scanning",
+      device: rememberedId
+        ? this.snapshot.rememberedDevices.find(device => device.id === rememberedId)?.name ?? "Tu planta"
+        : "",
       error: null,
       signal: "waiting",
       points: [],
+      signalTiming: INITIAL_SIGNAL_TIMING,
       lastValue: null,
       devices: [],
     });
@@ -167,6 +199,10 @@ class PlantSession {
       if (generation !== this.generation) return;
       await this.audio.start(this.snapshot.config);
       if (generation !== this.generation) return;
+      if (rememberedId) {
+        await this.connectDevice(rememberedId, true, generation);
+        return;
+      }
       this.ble.startDiscovery(
         (devices) => {
           if (generation === this.generation && this.snapshot.connection === "scanning")
@@ -192,6 +228,29 @@ class PlantSession {
     }
   };
 
+  connectRemembered = (id: string) => this.connect(id);
+
+  private connectDevice = async (id: string, remembered: boolean, generation: number) => {
+    const ble = this.ble;
+    if (!ble) throw new Error("La conexión Bluetooth no está preparada.");
+    const name = remembered
+      ? await ble.connectKnown(id, this.receive, message => this.handleLostConnection(generation, message))
+      : await ble.connectTo(id, this.receive, message => this.handleLostConnection(generation, message));
+    if (generation !== this.generation) return;
+    const known = [
+      { id, name, lastConnectedAt: Date.now() },
+      ...this.snapshot.rememberedDevices.filter(device => device.id !== id),
+    ].slice(0, 4);
+    this.watchAppState();
+    this.update({ connection: "connected", device: name, devices: [], rememberedDevices: known });
+    this.persist();
+  };
+
+  private handleLostConnection = (generation: number, message?: string) => {
+    if (generation !== this.generation) return;
+    void this.disconnect(message ?? "Se ha perdido la conexión con la planta. Acerca el sensor y vuelve a conectar.");
+  };
+
   selectDevice = (id: string) => {
     const ble = this.ble;
     if (!ble || this.snapshot.connection !== "scanning") return;
@@ -204,14 +263,7 @@ class PlantSession {
     this.update({ connection: "connecting", device: chosen?.name ?? "Tu planta" });
     void (async () => {
       try {
-        const name = await ble.connectTo(id, this.receive, () => {
-          void this.disconnect(
-            "Se ha perdido la conexión con la planta. Acerca el sensor y vuelve a conectar.",
-          );
-        });
-        if (generation !== this.generation) return;
-        this.watchAppState();
-        this.update({ connection: "connected", device: name, devices: [] });
+        await this.connectDevice(id, false, generation);
       } catch (error) {
         if (generation !== this.generation) return;
         await this.disconnect(
@@ -231,10 +283,10 @@ class PlantSession {
       this.graphTimer = null;
       if (this.foreground) {
         this.publishGraph();
-        this.graphTimer = setInterval(this.publishGraph, 100);
+        this.graphTimer = setInterval(this.publishGraph, 125);
       }
     });
-    if (this.foreground) this.graphTimer = setInterval(this.publishGraph, 100);
+    if (this.foreground) this.graphTimer = setInterval(this.publishGraph, 125);
   };
 
   disconnect = async (error: string | null = null) => {
@@ -265,38 +317,29 @@ class PlantSession {
     });
   };
 
-  private patches = new Map<string, Patch>();
-  private moodSettings = new Map<string, Configuration>();
-  selectMood = (id: string) => {
-    const current = this.snapshot.config;
-    if (mood(current.mood).id === id) return;
-    this.moodSettings.set(mood(current.mood).id, current);
-    this.configure(this.moodSettings.get(id) ?? { ...defaultConfiguration(), mood: id });
-  };
-  selectPreset = (slotId: string, id: string) => {
-    const config = this.snapshot.config;
-    const definition = mood(config.mood).slots.find((s) => s.id === slotId);
-    if (!definition || !allowedPresets(definition).some((p) => p.id === id)) return;
-    const key = `${config.mood ?? 'organic'}:${slotId}:${id}`;
-    this.updateSlot(slotId, { patch: this.patches.get(key) ?? copyPatch(id) });
-  };
-  updateSlot = (id: string, patch: { patch?: Patch; level?: number; motion?: Configuration['synthMotion'] }) => {
-    const config = this.snapshot.config;
-    this.configure({ ...config, slots: soundSlots(config).map((s) => s.id === id ? { ...s, ...patch } : s) });
+  setVolume = (volume: number) => this.configure({ ...this.snapshot.config, volume });
+  selectProfile = (profile: Configuration['profile']) => {
+    const saved = this.moodSettings[profile];
+    this.configure({
+      ...this.snapshot.config,
+      profile,
+      scale: saved?.scale ?? "",
+      tuning: saved?.tuning ?? Number.NaN,
+    });
   };
   configure = (config: Configuration) => {
     const previous = this.snapshot.config;
     const next = sanitizeConfiguration(config);
-    for (const slot of soundSlots(previous))
-      this.patches.set(`${previous.mood ?? 'organic'}:${slot.id}:${slot.patch.preset}`, slot.patch);
+    this.moodSettings[next.profile] = { scale: next.scale, tuning: next.tuning };
     this.update({ config: next, error: null });
+    this.persist();
     void this.audio?.configure(next).catch((error) => {
       if (this.snapshot.config === next) this.update({ config: previous });
       this.error(error);
     });
   };
   togglePlayback = () => {
-    void this.audio?.setPlaying(!this.snapshot.playing).catch(this.error);
+    void this.audio?.setMuted(this.snapshot.playing).catch(this.error);
   };
   preview = (slot: string) => this.audio?.preview(slot);
   clearError = () => this.update({ error: null });
@@ -309,6 +352,10 @@ export function usePlantSession() {
     plantSession.getSnapshot,
     plantSession.getSnapshot,
   );
+}
+
+export function usePlantControls() {
+  return useSyncExternalStore(plantSession.subscribeControls, plantSession.getControls, plantSession.getControls);
 }
 
 // Subscribe music controls only to settings/playback, never to the chart packets.

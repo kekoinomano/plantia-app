@@ -1,6 +1,6 @@
 {
   "name": "plantia-app",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
@@ -15,11 +15,12 @@
     "preandroid": "npm run sonora:build",
     "preios": "npm run sonora:build",
     "typecheck": "tsc --noEmit",
+    "moods:test": "node scripts/test-moods.mjs",
     "test": "npm run sonora:build && node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@expo/ui": "~57.0.16",
-    "@react-native-community/slider": "5.2.0",
+    "@react-native-async-storage/async-storage": "2.2.0",
     "base64-js": "^1.5.1",
     "expo": "~57.0.20",
     "expo-asset": "~57.0.16",

@@ -3,12 +3,11 @@ import { clamp } from './signal.ts';
 import {
   preset,
   defaultConfiguration,
-  greetingPatch,
   audioChannels,
   type Configuration,
   type Patch,
 } from './presets.ts';
-import type { Event, Note, Lane, Soundscape, Expression } from './composer.ts';
+import type { Event, Note, Lane, Soundscape, Expression } from './music-types.ts';
 export type Sample = { midi: number; rate: number; data: Float32Array };
 export type Bank = Record<string, Sample[]>;
 export type PCM = {
@@ -16,6 +15,9 @@ export type PCM = {
   sampleRate: number;
 };
 export const RELEASE_SECONDS = 6;
+/** Shared identifiers keep authored instruments identical in JS/native rendering. */
+const MODELS: Record<string, number> = { chime: 1, bowl: 2, rhodes: 3, bass: 4, kick: 5, snare: 6, hat: 7, tape: 8 };
+export const modelId = (model?: string) => MODELS[model ?? ''] ?? 0;
 const TAU = Math.PI * 2,
   SIZE = 2048;
 const sine = Float32Array.from({ length: SIZE + 1 }, (_, i) =>
@@ -30,6 +32,15 @@ const smooth = (x: number) => {
   const v = clamp(x);
   return v * v * (3 - 2 * v);
 };
+// Linear at normal levels; a soft knee protects only dense peaks. No silence pumping.
+const outputSample = (x: number) => {
+  const magnitude = Math.abs(x);
+  return Math.sign(x) * (magnitude <= 0.72 ? magnitude : 0.72 + 0.23 * Math.tanh((magnitude - 0.72) / 0.23));
+};
+// Preserve the original synth/limiter character, then raise only the final
+// output level. This avoids driving the soft knee as the previous gain of 11 did.
+const CHARACTER_GAIN = 3.6;
+const OUTPUT_GAIN = 2.5;
 class Effects {
   private dl: Float32Array;
   private dr: Float32Array;
@@ -91,15 +102,15 @@ class Effects {
         (j % 2 ? r : l) * 0.3 + (sum * 0.5 - this.damp[j]) * feedback;
       this.indices[j] = (this.indices[j] + 1) % this.lines[j].length;
     }
-    // Early reflections retain note articulation even in fully wet presets.
+    // Keep short reflections subordinate to the late field instead of producing slap echoes.
     const earlyL = this.tap(this.dl, 0.023),
       earlyR = this.tap(this.dr, 0.031),
       wetL =
-        earlyL * 0.78 +
-        (this.damp[0] + this.damp[1] - this.damp[2] - this.damp[3]) * 0.22,
+        earlyL * 0.16 +
+        (this.damp[0] + this.damp[1] - this.damp[2] - this.damp[3]) * 0.65,
       wetR =
-        earlyR * 0.78 +
-        (this.damp[0] - this.damp[1] + this.damp[2] - this.damp[3]) * 0.22;
+        earlyR * 0.16 +
+        (this.damp[0] - this.damp[1] + this.damp[2] - this.damp[3]) * 0.65;
     this.at = (this.at + 1) % this.dl.length;
     if (rv.on) {
       const wet = clamp((rv.wet + space) / 100);
@@ -126,6 +137,7 @@ type Voice = {
   design: SynthVoice;
   frequency: number;
   filterState: number;
+  noise: number;
   phase3: number;
   attenuation: number;
   harmonics: number[];
@@ -150,6 +162,7 @@ export function prepareVoice(rate: number, bank: Bank, n: Note): Voice | undefin
   const desc = preset(n.patch.preset),
     isGreeting = n.lane === 'greeting';
   const program = desc.program;
+  const drum = ['kick', 'snare', 'hat'].includes(desc.model ?? '');
   const sample = sampleFor(
       program === 'choir_organ' ? 'choir_aahs' : program,
       n.midi,
@@ -172,6 +185,20 @@ export function prepareVoice(rate: number, bank: Bank, n: Note): Voice | undefin
     0.96 / Math.sqrt(harmonics.reduce((sum, x) => sum + x * x, 0)),
   );
   for (let i = 0; i < harmonics.length; i++) harmonics[i] *= normalization;
+  const requestedRelease = drum ? 0.025 : desc.model === 'bass' ? 0.12 : isGreeting
+      ? 0.4
+      : n.lane === 'synth' && n.fade
+        ? n.patch.envelope.on
+          ? 0.6 + n.fade * (0.5 + (n.patch.envelope.release / 100) * 0.8)
+          : 0.8
+      : n.patch.envelope.on
+        ? 0.06 + 3.5 * (n.patch.envelope.release / 100) ** 2
+        : 0.35;
+  const playable = sample && !desc.percussion
+    ? Math.max(0, sample.data.length - 2) / sample.rate /
+      (2 ** ((n.midi - sample.midi) / 12) * n.patch.tuning / 440)
+    : Infinity;
+  const release = Math.min(requestedRelease, playable * 0.5);
   return {
     note: n,
     channel: -1,
@@ -197,11 +224,12 @@ export function prepareVoice(rate: number, bank: Bank, n: Note): Voice | undefin
     design,
     frequency,
     filterState: 0,
+    noise: 1,
     phase3: 0.37,
     attenuation: Math.min(1, Math.sqrt(880 / frequency)),
     harmonics,
     ratios: desc.model === 'bowl' ? [1, 2.71, 4.05, 5.43] : [1, 2, 3, 4],
-    attack: isGreeting
+    attack: drum ? 0.001 : desc.model === 'bass' ? 0.008 : isGreeting
       ? 0.003
       : n.lane === 'synth' && n.fade
         ? n.patch.envelope.on
@@ -214,23 +242,16 @@ export function prepareVoice(rate: number, bank: Bank, n: Note): Voice | undefin
         : n.lane === 'synth'
           ? 0.08
           : 0.004,
-    release: isGreeting
-      ? 0.4
-      : n.lane === 'synth' && n.fade
-        ? n.patch.envelope.on
-          ? 0.6 + n.fade * (0.5 + (n.patch.envelope.release / 100) * 0.8)
-          : 0.8
-      : n.patch.envelope.on
-        ? 0.06 + 3.5 * (n.patch.envelope.release / 100) ** 2
-        : 0.35,
-    stop: n.time + n.duration,
+    release,
+    // A long gate cannot sustain a short sample. Complete its release before EOF.
+    stop: n.time + Math.min(n.duration, Math.max(0, playable - release)),
     forced: Infinity,
     panL: Math.sqrt((1 - clamp(n.pan, -1, 1)) / 2),
     panR: Math.sqrt((1 + clamp(n.pan, -1, 1)) / 2),
     flavor,
-    model: desc.model,
+    model: sample && n.patch.scale === 'lofi' ? 'tape' : desc.model,
     gain:
-      (isGreeting ? 0.2 : n.lane === 'synth' ? 0.48 : 0.28) *
+      (isGreeting ? 0.2 : n.lane === 'synth' ? 0.65 : 0.5) *
       (n.velocity / 100) ** 1.15,
   };
 }
@@ -368,7 +389,7 @@ export class AudioCore {
             a = v.sample.data;
           if (p < a.length - 1)
             value = a[p] + (a[p + 1] - a[p]) * (v.position - p);
-          v.position += v.increment;
+          v.position += v.increment * (v.model === 'tape' ? 1 + 0.0018 * sin(age * 0.27) + 0.0006 * sin(age * 4.3) : 1);
           if (v.sample2) {
             const q = Math.floor(v.position2),
               b = v.sample2.data;
@@ -379,6 +400,21 @@ export class AudioCore {
             value = value * 0.6 + other * 0.4;
             v.position2 += v.increment2;
           }
+        } else if (v.model === 'rhodes') {
+          const phase = age * v.frequency;
+          value = (sin(phase + 0.12 * sin(phase * 2) * Math.exp(-age * 1.8)) * 0.8 +
+            sin(phase * 3) * 0.12 * Math.exp(-age * 4)) * Math.exp(-age * (0.6 + v.note.color * 0.3));
+        } else if (v.model === 'bass') {
+          value = (sin(age * v.frequency) * 0.85 + sin(age * v.frequency * 2) * 0.12) * Math.exp(-age * 0.7);
+        } else if (v.model === 'kick') {
+          // Integrated exponential pitch drop, avoiding a phase discontinuity.
+          value = sin(48 * age + 2.7 * (1 - Math.exp(-age * 30))) * Math.exp(-age * 14);
+        } else if (v.model === 'snare' || v.model === 'hat') {
+          v.noise = (Math.imul(v.noise, 1664525) + 1013904223) >>> 0;
+          const noise = v.noise / 2147483648 - 1;
+          v.filterState += (noise - v.filterState) * (v.model === 'hat' ? 0.22 : 0.42);
+          value = v.model === 'hat' ? (noise - v.filterState) * Math.exp(-age * 65) * 0.38 :
+            (v.filterState * 0.55 + sin(age * 175) * 0.25 * Math.exp(-age * 18)) * Math.exp(-age * 22);
         } else if (v.model) {
           for (let j = 0; j < v.ratios.length; j++)
             if (v.frequency * v.ratios[j] < this.rate * 0.43)
@@ -451,6 +487,11 @@ export class AudioCore {
           }
         }
         */
+        if (v.model === 'tape' || v.model === 'rhodes') {
+          const cutoff = 1600 + v.note.color * 1800;
+          v.filterState += (value - v.filterState) * (1 - Math.exp(-TAU * cutoff / this.rate));
+          value = Math.tanh(v.filterState * 1.35) / 1.35;
+        }
         value *= envelope * v.gain;
         if (v.note.lane === 'synth') {
           const drift =
@@ -467,7 +508,7 @@ export class AudioCore {
       this.duck +=
         (duckTarget - this.duck) *
         (duckTarget < this.duck ? duckAttack : duckRelease);
-      const synthDuckTarget = time - this.instrumentAt < 0.32 && audibleInstrument ? 0.62 : 1;
+      const synthDuckTarget = time - this.instrumentAt < 0.32 && audibleInstrument ? 0.88 : 1;
       this.synthDuck +=
         (synthDuckTarget - this.synthDuck) *
         (synthDuckTarget < this.synthDuck ? duckAttack : duckRelease);
@@ -487,9 +528,8 @@ export class AudioCore {
       }
       this.dcL += (left - this.dcL) * dc;
       this.dcR += (right - this.dcR) * dc;
-      // 2.5x the previous pre-limiter master gain; keep output bounded at 0.9.
-      l[i] = Math.tanh((left - this.dcL) * 4.125) * 0.9;
-      r[i] = Math.tanh((right - this.dcR) * 4.125) * 0.9;
+      l[i] = clamp(outputSample((left - this.dcL) * CHARACTER_GAIN) * OUTPUT_GAIN, -0.98, 0.98);
+      r[i] = clamp(outputSample((right - this.dcR) * CHARACTER_GAIN) * OUTPUT_GAIN, -0.98, 0.98);
       if (this.cursor % 128 === 0)
         this.voices = this.voices.filter(
           (v) => time < Math.min(v.stop + v.release, v.forced),

@@ -17,6 +17,12 @@ constexpr double TAU = 6.283185307179586476925286766559;
 constexpr double INF = std::numeric_limits<double>::infinity();
 inline double clamp(double x, double lo = 0, double hi = 1) { return std::max(lo, std::min(hi, x)); }
 inline double smooth(double x) { double v = clamp(x); return v*v*(3-2*v); }
+inline double outputSample(double x) {
+  double magnitude=std::abs(x);
+  return std::copysign(magnitude<=.72?magnitude:.72+.23*std::tanh((magnitude-.72)/.23),x);
+}
+constexpr double CHARACTER_GAIN = 3.6;
+constexpr double OUTPUT_GAIN = 2.5;
 inline double sine(double phase) {
   static const auto table = [] {
     std::array<float, 2049> t{};
@@ -59,14 +65,15 @@ struct Effects {
       indices[j]=(indices[j]+1)%lines[j].size();
     }
     double earlyL=tap(dl,.023),earlyR=tap(dr,.031);
-    double wetL=earlyL*.78+(damp[0]+damp[1]-damp[2]-damp[3])*.22;
-    double wetR=earlyR*.78+(damp[0]-damp[1]+damp[2]-damp[3])*.22;
+    double wetL=earlyL*.16+(damp[0]+damp[1]-damp[2]-damp[3])*.65;
+    double wetR=earlyR*.16+(damp[0]-damp[1]+damp[2]-damp[3])*.65;
     at=(at+1)%dl.size();
     if(p.reverbOn){double wet=clamp((p.reverbWet+space)/100);l=l*(1-wet)+wetL*wet;r=r*(1-wet)+wetR*wet;}
     return {l,r};
   }
 };
 struct Voice {
+  uint32_t noise=1;
   double id=0, time=0, sourceTime=0, stop=0, forced=INF, attack=0, release=0;
   double position=0, position2=0, increment=0, increment2=0, phase=0, phase2=.07, phase3=.37;
   double detuneRatio=1, frequency=0, filterState=0, attenuation=1, panL=0, panR=0, gain=0, color=0, pan=0;
@@ -190,12 +197,26 @@ public:
         if(v.sample) {
           size_t p=size_t(std::floor(v.position));const auto&a=*v.sample;
           if(p+1<a.size())value=double(a[p])+(double(a[p+1])-a[p])*(v.position-p);
-          v.position+=v.increment;
+          v.position+=v.increment*(v.model==8?1+.0018*sine(age*.27)+.0006*sine(age*4.3):1);
           if(v.sample2) {
             size_t q=size_t(std::floor(v.position2));const auto&b=*v.sample2;
             double other=q+1<b.size()?double(b[q])+(double(b[q+1])-b[q])*(v.position2-q):0;
             value=value*.6+other*.4;v.position2+=v.increment2;
           }
+        } else if(v.model==3) {
+          double phase=age*v.frequency;
+          value=(sine(phase+.12*sine(phase*2)*std::exp(-age*1.8))*.8+
+            sine(phase*3)*.12*std::exp(-age*4))*std::exp(-age*(.6+v.color*.3));
+        } else if(v.model==4) {
+          value=(sine(age*v.frequency)*.85+sine(age*v.frequency*2)*.12)*std::exp(-age*.7);
+        } else if(v.model==5) {
+          value=sine(48*age+2.7*(1-std::exp(-age*30)))*std::exp(-age*14);
+        } else if(v.model==6||v.model==7) {
+          v.noise=v.noise*1664525u+1013904223u;
+          double noise=double(v.noise)/2147483648.-1;
+          v.filterState+=(noise-v.filterState)*(v.model==7?.22:.42);
+          value=v.model==7?(noise-v.filterState)*std::exp(-age*65)*.38:
+            (v.filterState*.55+sine(age*175)*.25*std::exp(-age*18))*std::exp(-age*22);
         } else if(v.model) {
           for(int j=0;j<4;j++)if(v.frequency*v.ratios[j]<rate*.43)
             value+=sine(age*v.frequency*v.ratios[j])*std::exp(-age*(1+j*.6)/(v.model==2?2.8:1.4))*(j?.3/(j+1):1);
@@ -231,6 +252,11 @@ public:
           }
         }
         */
+        if(v.model==8||v.model==3) {
+          double cutoff=1600+v.color*1800;
+          v.filterState+=(value-v.filterState)*(1-std::exp(-TAU*cutoff/rate));
+          value=std::tanh(v.filterState*1.35)/1.35;
+        }
         value*=envelope*v.gain;
         if(v.kind==0) {
           double drift=expression[2]*.13+sine(age*.08+v.pan)*.05;
@@ -241,7 +267,7 @@ public:
       duck+=(duckTarget-duck)*(duckTarget<duck?duckAttack:duckRelease);
       bool audibleInstrument=false;
       for(size_t j=0;j<levels.size();j++)if(kinds[j]==1&&levels[j]>0)audibleInstrument=true;
-      double synthDuckTarget=t-instrumentAt<.32&&audibleInstrument?.62:1;
+      double synthDuckTarget=t-instrumentAt<.32&&audibleInstrument?.88:1;
       synthDuck+=(synthDuckTarget-synthDuck)*(synthDuckTarget<synthDuck?duckAttack:duckRelease);
       double outL=0,outR=0;
       for(size_t j=0;j<levels.size();j++) {
@@ -252,7 +278,8 @@ public:
         maxima[kind]=std::max(maxima[kind],std::max(std::abs(b[0]*gain),std::abs(b[1]*gain)));
       }
       dcL+=(outL-dcL)*dc;dcR+=(outR-dcR)*dc;
-      l[i]=std::tanh((outL-dcL)*4.125)*.9;r[i]=std::tanh((outR-dcR)*4.125)*.9;
+      l[i]=clamp(outputSample((outL-dcL)*CHARACTER_GAIN)*OUTPUT_GAIN,-.98,.98);
+      r[i]=clamp(outputSample((outR-dcR)*CHARACTER_GAIN)*OUTPUT_GAIN,-.98,.98);
       if(cursor%128==0)voices.erase(std::remove_if(voices.begin(),voices.end(),[t](const Voice&v){return !(t<std::min(v.stop+v.release,v.forced));}),voices.end());
     }
     pending.erase(pending.begin(),pending.begin()+atEvent);

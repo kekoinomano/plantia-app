@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { build } from 'esbuild';
 import { AudioCore } from '../src/lib/sonora/dsp.ts';
-import { Composer } from '../src/lib/sonora/composer.ts';
 import { defaultConfiguration } from '../src/lib/sonora/presets.ts';
 
 const bundle = await build({ entryPoints: ['src/lib/audio/native-synth.ts'],
@@ -68,7 +67,9 @@ function harness(cost = 0) {
     jump: seconds => { now += seconds * 1000; }, timers };
 }
 function audition(config, time = 10) {
-  const c = new Composer(config); c.audition('synth', time); return c.drain();
+  return [{ type: 'note', time, note: { id: 1, time, sourceTime: time, source: 0,
+    midi: 60, velocity: 65, duration: 6, lane: 'synth', slot: 'foundation',
+    patch: config.synth, pan: 0, color: .2 } }];
 }
 function relative(events, origin) {
   return events.map(e => ({ ...e, time: e.time - origin,
