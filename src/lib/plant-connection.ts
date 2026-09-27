@@ -81,7 +81,7 @@ export class PlantConnection {
       .filter(isPlant)
       .map((device) => ({
         id: device.id,
-        name: "Plantia",
+        name: "Dispositivo",
         rssi: device.rssi ?? null,
         plant: isPlant(device),
       }))
@@ -200,7 +200,6 @@ export class PlantConnection {
         },
       ),
     );
-    return connected.name ?? connected.localName ?? "Tu planta";
   }
 
   async close() {

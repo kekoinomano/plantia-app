@@ -140,7 +140,7 @@ export class NativeAudio {
     const config = sanitizeConfiguration(input);
     if (!this.context || this.closed) return;
     const current = this.currentSettings;
-    const bank = await this.bank.load(config, this.context);
+    const bank = await this.bank.load(config);
     if (this.closed || version !== this.configureVersion) return;
     this.currentSettings = { config, bank };
     if (!this.synth) {

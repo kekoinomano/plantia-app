@@ -111,9 +111,9 @@ const synths: Row[] = [
 const instruments: Row[] = [
   ['Electric Piano', 'Doric', '2-5', '-', '18/45', '8/10', '52/2', 'model:rhodes'],
   ['Round Bass', 'Ionian', '1-3', '-', '-', '-', '15/1', 'model:bass'],
-  ['Soft Kick', '0', '2-2', '-', '-', '-', '4/0', 'model:kick'],
-  ['Brush Snare', '2', '2-2', '-', '-', '-', '3/0', 'model:snare'],
-  ['Soft Hat', '6', '2-2', '-', '-', '-', '2/0', 'model:hat'],
+  ['Soft Kick', '0', '2-2', '-', '-', '-', '4/0', 'soft_kick'],
+  ['Soft Snare', '2', '2-2', '-', '-', '-', '3/0', 'soft_snare'],
+  ['Soft Hat', '6', '2-2', '-', '-', '-', '2/0', 'soft_hat'],
   ['Bongos', '0,1', '4-4', '-', '12/20', '-', '12/0', 'bongos'],
   ['Congas', '2,3,4', '4-4', '-', '14/25', '-', '16/0', 'congas'],
   ['Timbales', '5,6', '4-4', '-', '12/20', '-', '12/0', 'timbales'],
@@ -162,6 +162,8 @@ const instruments: Row[] = [
     '100/0',
     'acoustic_grand_piano',
   ],
+  ['Piano expresivo', 'Ionian', '2-6', '-', '12/45', '-', '100/0', 'ghibli_grand_piano'],
+  ['Piano vertical', 'Ionian', '2-5', '-', '26/52', '-', '100/0', 'acoustic_upright_piano'],
   ['Woodwinds', 'Locrio', '1-4', '8/99', '-', '-', '100/0', 'oboe'],
   ['Marimba', 'Lydian', '1-4', '3/99', '41/52', '-', '100/0', 'marimba'],
   ['Tibetan Bell', 'Locrio', '1-3', '3/99', '-', '-', '100/0', 'model:bowl'],
@@ -239,13 +241,22 @@ const instruments: Row[] = [
   ],
   ['Shakuhachi', 'Min Pentatonic', '3-5', '12/92', '28/40', '-', '28/12', 'shakuhachi'],
   ['Ocarina', 'Maj Pentatonic', '4-6', '10/92', '23/35', '-', '22/8', 'ocarina'],
-  ['Flauta dulce', 'Doric', '3-5', '8/92', '20/30', '-', '25/10', 'recorder'],
+  ['Flauta dulce', 'Doric', '5-6', '8/92', '20/30', '-', '25/10', 'recorder'],
   ['Shanai', 'Min Pentatonic', '3-5', '8/94', '18/28', '-', '20/6', 'shanai'],
   ['Flauta de botella', 'Maj Pentatonic', '3-5', '14/93', '26/40', '-', '26/14', 'blown_bottle'],
+  ['Bass Recorder', 'Doric', '3-5', '-', '20/30', '-', '25/10', 'bass_recorder'],
+  ['Renaissance Organ', 'Mixolydian', '2-5', '-', '35/60', '-', '50/26', 'renaissance_organ'],
+  ['Vibraphone', 'Maj Pentatonic', '3-6', '-', '24/45', '-', '35/0', 'vibraphone'],
+  ['Bell Tree', 'Chromatic', '5-6', '-', '12/30', '-', '20/4', 'bell_tree'],
+  ['Tenor Saxophone', 'Doric', '3-5', '-', '20/45', '-', '40/4', 'tenor_saxophone'],
+  ['Tenor Saxophone Short', 'Doric', '3-5', '-', '20/45', '-', '10/4', 'tenor_saxophone_short'],
+  ['Strumstick', 'Min Pentatonic', '2-5', '-', '25/34', '-', '100/0', 'strumstick'],
+  ['Dan Tranh', '0,1,4,7,10', '2-6', '30/99', '100/99', '73/40', '0/99', 'dan_tranh'],
 ];
 const pair = (s: string) => (s === '-' ? [0, 0] : s.split('/').map(Number));
 const percussionHits: Record<string, number[]> = {
   bongos: [60, 61], congas: [62, 63, 64], timbales: [65, 66], maracas: [70],
+  soft_kick: [36], soft_snare: [38], soft_hat: [42],
 };
 function make(row: Row, kind: Preset['kind'], flavor: number): Preset {
   const [name, scale, oct, del, rev, cho, env, source] = row,
@@ -259,9 +270,9 @@ function make(row: Row, kind: Preset['kind'], flavor: number): Preset {
     name,
     kind,
     family: kind === 'synth' ? 'ambient' :
-      /bongo|conga|timbal|maraca|taiko|timpani|kalimba|drum|marimba|xylo|bell|model:/.test(source ?? '') ? 'percussion' :
-      /flute|oboe|brass|shakuhachi|ocarina|recorder|shanai|blown_bottle/.test(source ?? '') ? 'wind' :
-      /harp|guitar|string|sitar/.test(source ?? '') ? 'strings' :
+      /bongo|conga|timbal|maraca|taiko|timpani|kalimba|drum|marimba|xylo|vibraphone|bell|soft_kick|soft_snare|soft_hat|model:/.test(source ?? '') ? 'percussion' :
+      /flute|oboe|brass|saxophone|shakuhachi|ocarina|recorder|shanai|blown_bottle/.test(source ?? '') ? 'wind' :
+      /harp|guitar|string|sitar|strumstick|dan_tranh/.test(source ?? '') ? 'strings' :
       /choir/.test(source ?? '') ? 'voice' : 'keys',
     flavor,
     percussion: source ? percussionHits[source] : undefined,
@@ -291,6 +302,9 @@ export const SYNTHS = [...synths,
   ['Liquid Nebula', 'Maj Pentatonic', '3-5', '-', '44/78', '48/5', '80/85'] as Row,
   ['Spectral Bloom', 'Maj Pentatonic', '3-5', '-', '38/72', '52/7', '80/85'] as Row,
   ['Spiral Reed', 'Maj Pentatonic', '3-5', '52/49', '38/72', '48/9', '24/65'] as Row,
+  ['Techno Stab', 'Doric', '3-5', '28/57', '12/45', '-', '18/4'] as Row,
+  ['Techno Pulse', 'Doric', '3-5', '-', '9/35', '-', '16/3'] as Row,
+  ['Techno Haze', 'Doric', '2-4', '-', '16/45', '12/4', '45/75'] as Row,
 ].map((r, i) => make(r, 'synth', i));
 export const INSTRUMENTS = instruments.map((r, i) => make(r, 'instrument', i));
 export const PRESETS = [...SYNTHS, ...INSTRUMENTS];
@@ -310,6 +324,11 @@ export function defaultConfiguration(): Configuration {
 export function sanitizeConfiguration(input: Configuration): Configuration {
   const volume = Number.isFinite(input.volume) ? Math.max(0, Math.min(1, input.volume)) : 1;
   const p = profile(input.profile);
+  // Static per-language calibration preserves every note's dynamics. A single
+  // global boost would overdrive the already louder lofi and sleep mixes.
+  const masteringGain = p.id === 'ghibli' || p.id === 'psychedelic' ? 1.5
+    : p.id === 'deep-focus' ? 1.35 : 1;
+  const level = volume * masteringGain;
   const e = ensemblePlan(p.id);
   const defaultScale = Object.entries(SCALES).find(([, notes]) =>
     notes.length === p.notes.length && notes.every((note, index) => note === p.notes[index]))?.[0] ?? 'Chromatic';
@@ -325,16 +344,15 @@ export function sanitizeConfiguration(input: Configuration): Configuration {
   return {
     version: 2, profile: p.id, volume, scale, tuning,
     synth, instrument, synthMotion, speed: 1,
-    synthLevel: p.mix.body * volume, instrumentLevel: p.mix.lead * volume, greetingLevel: 0,
+    synthLevel: p.mix.body * level, instrumentLevel: p.mix.lead * level, greetingLevel: .35 * level,
     slots: [
-      { id: 'foundation', kind: e.foundationKind, patch: synth, level: p.mix.body * volume, motion: synthMotion },
-      { id: 'contour', kind: 'instrument', patch: instrument, level: p.mix.lead * volume },
-      { id: 'detail', kind: 'instrument', patch: makePatch(p.detail[0], 'detail'), level: p.mix.detail * volume },
-      { id: 'accompaniment', kind: 'instrument', patch: makePatch(e.accompaniment[0], 'accompaniment'), level: e.levels.accompaniment * volume },
-      { id: 'bass', kind: 'instrument', patch: makePatch(e.bass[0], 'bass'), level: e.levels.bass * volume },
-      { id: 'texture', kind: e.textureKind, patch: makePatch(e.texture[0], 'texture'), level: e.levels.texture * volume },
-      { id: 'percussion', kind: 'instrument', patch: makePatch('soft-kick', 'percussion'), level: e.levels.percussion * volume },
-      { id: 'counter', kind: e.counterKind ?? 'instrument', patch: makePatch(e.counter[0], 'counter'), level: e.levels.counter * volume },
+      { id: 'foundation', kind: e.foundationKind, patch: synth, level: p.mix.body * level, motion: synthMotion },
+      { id: 'contour', kind: 'instrument', patch: instrument, level: p.mix.lead * level },
+      { id: 'detail', kind: 'instrument', patch: makePatch(p.detail[0], 'detail'), level: p.mix.detail * level },
+      { id: 'accompaniment', kind: 'instrument', patch: makePatch(e.accompaniment[0], 'accompaniment'), level: e.levels.accompaniment * level },
+      { id: 'bass', kind: 'instrument', patch: makePatch(e.bass[0], 'bass'), level: e.levels.bass * level },
+      { id: 'texture', kind: e.textureKind, patch: makePatch(e.texture[0], 'texture'), level: e.levels.texture * level },
+      { id: 'percussion', kind: 'instrument', patch: makePatch('soft-kick', 'percussion'), level: e.levels.percussion * level },
     ],
   };
 }
@@ -350,8 +368,7 @@ export function notePool(p: Patch) {
 export const soundSlots = (config: Configuration): SoundSlot[] =>
   config.slots ?? sanitizeConfiguration(config).slots!;
 export function audioChannels(config: Configuration) {
-  // Keep the silent final bus for the existing JS/native renderer protocol.
   return [...soundSlots(config), {
-    id: '$greeting', kind: 'greeting' as const, patch: config.instrument, level: 0,
+    id: '$greeting', kind: 'greeting' as const, patch: copyPatch('bell-tree'), level: config.greetingLevel,
   }];
 }

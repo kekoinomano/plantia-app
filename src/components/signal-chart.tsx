@@ -3,10 +3,11 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Svg, { Path } from 'react-native-svg';
-import Animated, { runOnJS, useAnimatedProps, useAnimatedStyle, useFrameCallback, useSharedValue } from 'react-native-reanimated';
+import Animated, { runOnJS, useAnimatedProps, useAnimatedStyle, useFrameCallback, useSharedValue, withSequence, withTiming } from 'react-native-reanimated';
 import { plantSession, usePlantSessionValue, type SignalPoint } from '@/lib/plant-session';
 import { INITIAL_SIGNAL_TIMING, SIGNAL_WINDOW_MS, type SignalTiming } from '@/lib/signal-chart';
 import { curveAt, curveExtrema, prepareSignalCurve, rasterSignalPath, rasterCursor, type SignalCurve } from '@/lib/signal-curve';
+import { getWaveInspection, subscribeWaveInspection } from '@/lib/wave-music/inspection';
 import { colors } from './plantia-theme';
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 const WIDTH = 320, HEIGHT = 170;
@@ -30,6 +31,7 @@ export const SignalChart = memo(function SignalChart({ points = NO_POINTS, live,
   const [windowMs, setWindowMs] = useState(SIGNAL_WINDOW_MS);
   const shape = useSharedValue(EMPTY), clock = useSharedValue(0);
   const drawnPath = useSharedValue('');
+  const greetingGlow = useSharedValue(0);
   const showCursor = useSharedValue(false);
   const tile = useSharedValue({ end: 0, mean: 0, range: 1000, window: SIGNAL_WINDOW_MS, anchor: -1, builtAt: 0 });
   const transform = useSharedValue({ x: 0, y: -170, sx: 1, sy: 1, cursorY: 85, cursorOpacity: 0 });
@@ -64,6 +66,22 @@ export const SignalChart = memo(function SignalChart({ points = NO_POINTS, live,
     return () => sub.remove();
   }, [active]);
   useEffect(() => { running.value = live || waiting; showCursor.value = live; }, [live, waiting, running, showCursor]);
+  useEffect(() => {
+    if (!stream) return;
+    let lastGreeting = getWaveInspection()?.summary.lastGreeting;
+    return subscribeWaveInspection(() => {
+      const greeting = getWaveInspection()?.summary.lastGreeting;
+      if (!greeting) { lastGreeting = greeting; return; }
+      if (greeting === lastGreeting) return;
+      lastGreeting = greeting;
+      if (!foreground.current) return;
+      greetingGlow.value = 0;
+      greetingGlow.value = withSequence(
+        withTiming(0.32, { duration: 180 }),
+        withTiming(0, { duration: 850 }),
+      );
+    });
+  }, [stream, greetingGlow]);
   useEffect(() => {
     // The stream has an imperative, capped publication channel. Packet updates
     // never render React controls or reconcile a tree of animated SVG elements.
@@ -170,6 +188,7 @@ export const SignalChart = memo(function SignalChart({ points = NO_POINTS, live,
     };
   });
   const lineProps = useAnimatedProps(() => ({ d: drawnPath.value }));
+  const glowProps = useAnimatedProps(() => ({ d: drawnPath.value, opacity: greetingGlow.value }));
   const layerStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: transform.value.x * layoutWidth / WIDTH }, { translateY: transform.value.y },
       { scaleX: transform.value.sx }, { scaleY: transform.value.sy }],
@@ -189,6 +208,8 @@ export const SignalChart = memo(function SignalChart({ points = NO_POINTS, live,
           <Animated.View pointerEvents="none" renderToHardwareTextureAndroid shouldRasterizeIOS
             style={[styles.layer, { width: layoutWidth * 2 }, layerStyle]}>
             <Svg width={layoutWidth * 2} height={510} viewBox="0 0 640 510" preserveAspectRatio="none">
+              <AnimatedPath animatedProps={glowProps} fill="none" stroke={accent}
+                strokeWidth={8} strokeLinecap="round" strokeLinejoin="round" />
               <AnimatedPath animatedProps={lineProps} fill="none" stroke={live ? accent : '#A6B09F'}
                 strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
             </Svg>

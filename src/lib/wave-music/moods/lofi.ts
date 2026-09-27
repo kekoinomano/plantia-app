@@ -12,30 +12,30 @@ const ROLES: Record<LofiRole, string> = { theme: 'Tema', answer: 'Respuesta', ke
  * with candidate calibration ranges; recording names never enter composition. */
 export function makeLofiMood(calibration: LofiCalibration = LOFI_CALIBRATION): WaveMood {
   return {
-    presets: ['electric-piano','pianoforte','guitar','round-bass','soft-kick','brush-snare','soft-hat'],
+    presets: ['vibraphone','pianoforte','strumstick','round-bass','soft-kick','soft-snare','soft-hat'],
     profile: {
       id: 'lofi-waves', name: 'Lofi Ondas', description: 'Tres conjuntos cálidos, groove estable y frases guiadas por la planta.',
       notes: [0,2,3,5,7,9,10], tuning: 440, tonic: 2, leadRange: [60,72], detailRange: [60,72],
       space: 18, width: .35, tension: .25,
-      lead: ['pianoforte'], detail: ['pianoforte'], body: ['electric-piano','pianoforte','guitar'],
+      lead: ['pianoforte'], detail: ['pianoforte'], body: ['vibraphone','pianoforte','strumstick'],
       phrase: { notes: [2,3], spacing: [.4,1.4], rest: [.4,2], gate: [.25,.9], attacksPerMinute: 100, answerEvery: 2, salience: 0, beat: 60/74, swing: .13 },
       harmony: { chords: [[0,3,7,10]], hold: 2, fade: .4, voices: 3 },
       mix: { body: L.mix.body, lead: L.mix.lead, detail: L.mix.detail, velocity: 46, brightness: .16 },
     },
     ensemble: {
-      base: 'jazz', foundationKind: 'instrument', textureKind: 'synth', accompaniment: ['electric-piano'],
-      bass: ['round-bass'], texture: ['peace'], counter: ['pianoforte'], tempo: [64,86], meter: 4, budget: 240,
-      levels: { accompaniment: 0, bass: L.mix.bass, texture: 0, percussion: L.mix.drums, counter: L.mix.greeting },
+      base: 'jazz', foundationKind: 'instrument', textureKind: 'synth', accompaniment: ['vibraphone'],
+      bass: ['round-bass'], texture: ['peace'], tempo: [64,86], meter: 4, budget: 240,
+      levels: { accompaniment: 0, bass: L.mix.bass, texture: 0, percussion: L.mix.drums },
     },
     explanation: [
-      'El vocabulario se define antes del mapeo: Rhodes cálido, piano íntimo o cuerdas apagadas. Cada conjunto tiene una base y un solista compatibles; no se sortean instrumentos independientes.',
+      'El vocabulario se define antes del mapeo: vibráfono suave, piano íntimo o strumstick. Cada conjunto tiene una base y un solista compatibles; no se sortean instrumentos independientes.',
       'Dos ajustes cada 2 s: ventana corta de 3 s al 95 % y larga de 8 s al 80 %, hasta ocho ondas. La introducción usa sólo la ventana corta completa y se identifica como tal.',
       'La media absoluta participa en el tempo y la familia de acompañamiento; la distribución ponderada de frecuencias elige armonía y groove. La variación regula la dinámica. El piano desarrolla las notas de ese acorde, sin convertir cada onda en notas aisladas.',
       'La base puede acompañar al solista: registros separados, acordes de séptima sin clusters y volumen subordinado. Una sola línea melódica, máximo cinco voces afinadas, caídas incluidas. La batería conserva el pulso cuando descansa la melodía.',
       'La identidad se retiene ocho compases y se puede adaptar a los cuatro ante un cambio grande. El piano repite un motivo de dos compases: pregunta, respuesta y resolución en la tercera del acorde.',
       'La media corta, larga e inicial se conservan en memoria con sus análisis. Los rangos se contrastan con los cuatro registros de datasamples; no son calibración biológica ni garantía para todos los circuitos.',
       'Piano acústico en registro medio, acompañado por dos voces más graves y discretas. La respuesta termina más suave y sostenida; el bajo redondo mantiene su patrón.',
-      'Un saludo detecta un extremo relativo en datos crudos antes de Fourier. Tiene calentamiento, referencia robusta y ocho segundos de separación mínima. Sustituye brevemente al solista por dos notas de piano; no se acumula con otras respuestas.',
+      'El saludo común detecta un extremo relativo antes de Fourier y usa bell tree. Retira brevemente al solista; no se acumula con otras respuestas.',
     ],
     patch(preset, slot) {
       const dry = slot === 'bass' || slot === 'percussion';
@@ -54,15 +54,6 @@ export function makeLofiMood(calibration: LofiCalibration = LOFI_CALIBRATION): W
         state=null; voicing=[]; lastTones=[2,5,9,0]; tonic=2; };
       return {
         reset,
-        greet(event) {
-          const first = nearestPitch(lastTones, event.direction > 0 ? 65 : 69, 62,74);
-          const second = nearestPitch(lastTones.filter(pc => pc !== wrap(first,12)), first + event.direction*4, 62,74);
-          return { holdSeconds: 1.1, notes: [first,second].map((midi,i) => ({
-            after: i*.29, duration: i ? .42 : .12, midi, preset: L.solo.preset, slot: 'counter',
-            velocity: 56 + event.strength*5 - i*3, color: L.solo.color, pan: i ? .12 : -.12,
-            attack: L.solo.attack, release: i ? 18 : 8, rule: 'Saludo: dos notas de piano sobre el acorde, detectado antes de Fourier',
-          })) };
-        },
         arrange(frame): WaveBar {
           const measured = lofiCoordinates(frame, calibration), first = state === null, phase=barNumber%8;
           if (!initialMean) initialMean=frame.long.fit.mean;
@@ -107,7 +98,7 @@ export function makeLofiMood(calibration: LofiCalibration = LOFI_CALIBRATION): W
               {offset:i*.014*beat,pan:0,attack:8,release:22}));
             const upper=nearestPitch([tones[2]],top+3,60,72);
             const phrase=barNumber%2===0 ? L.resolvedMotif.question : L.resolvedMotif.answer;
-            for (const [at,useFifth,gate,velocity] of phrase) {
+            for (const [at,useFifth,gate,velocity] of lead ? phrase : []) {
               // The clock adds swing on half-beat offbeats. Only the central
               // 1.5-beat note is swung in the accepted two-bar phrase.
               const desired=at+(at===1.5?swing/2:0);
@@ -115,6 +106,11 @@ export function makeLofiMood(calibration: LofiCalibration = LOFI_CALIBRATION): W
               emit(at*4,'contour',L.solo.preset,useFifth?upper:top,velocity+dynamic,gate,
                 barNumber%2===0?'Piano: pregunta sobre tercera y quinta':'Piano: respuesta y resolución sostenida en la tercera',
                 source,'long',{offset:(desired-at-clockSwing)*beat,pan:0,attack:8,release:22});
+            }
+            if(role==='keys') {
+              emit(8,'contour',L.solo.preset,top,34+dynamic,1.25,
+                'Relevo de teclado: una nota aislada del acorde durante el descanso del tema',source,'long',
+                {pan:.07,attack:8,release:20});
             }
             const bass=nearestPitch([tones[0]],38+selected.mean*4,33,45);
             emit(0,'bass','round-bass',bass,47+variation*7,1.2,'Bajo: raíz y ancla del compás',source,'long',{release:8});
@@ -128,7 +124,7 @@ export function makeLofiMood(calibration: LofiCalibration = LOFI_CALIBRATION): W
             const pattern=phase%2;
             for (const step of groove.kicks[pattern]) emit(step,'percussion','soft-kick',36,44+variation*7-(step?4:0),.18,
               'Bombo: patrón estable de dos compases',source,'short',{attack:0,release:3});
-            for (const step of [4,12]) emit(step,'percussion','brush-snare',38,32+variation*6,.12,
+            for (const step of [4,12]) emit(step,'percussion','soft-snare',38,32+variation*6,.12,
               'Caja: dos y cuatro con pequeño retraso compartido',source,'short',{offset:.014,release:3});
             if (!intro) for (const [i,step] of groove.hats[pattern].entries()) emit(step,'percussion','soft-hat',42,
               21+variation*4-(i%2?4:0),.07,'Hat: contratiempo con dinámica alternada',source,'short',{pan:-.18,release:2});

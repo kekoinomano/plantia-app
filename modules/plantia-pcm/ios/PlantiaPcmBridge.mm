@@ -13,6 +13,12 @@ static std::vector<double> doubles(NSArray<NSNumber*>* a){std::vector<double> v;
   if(data.length%4)throw std::invalid_argument("Invalid PCM sample");
   std::vector<float> v(data.length/4);[data getBytes:v.data() length:data.length];sonora::get(h.intValue).sample(key.intValue,v.data(),v.size());
 }FAIL}
++ (void)loadSfz:(NSNumber*)h key:(NSNumber*)key lane:(NSNumber*)lane path:(NSString*)path gain:(NSNumber*)gain tuning:(NSNumber*)tuning {GUARD{
+  sonora::get(h.intValue).loadSfz(key.intValue,lane.intValue,std::string(path.UTF8String),gain.doubleValue,tuning.doubleValue);
+}FAIL}
++ (void)scheduleSfz:(NSNumber*)h time:(NSNumber*)time key:(NSNumber*)key note:(NSNumber*)note velocity:(NSNumber*)velocity duration:(NSNumber*)duration {GUARD{
+  sonora::get(h.intValue).scheduleSfz(time.doubleValue,key.intValue,note.intValue,velocity.intValue,duration.doubleValue);
+}FAIL}
 + (NSData*)render:(NSNumber*)h frames:(NSInteger)frames {GUARD{
   if(frames<1||frames>96000)throw std::invalid_argument("Invalid block size");
   NSMutableData* data=[NSMutableData dataWithLength:frames*2*sizeof(float)];float*p=static_cast<float*>(data.mutableBytes);

@@ -6,10 +6,16 @@ import { Icon } from "@/components/plant-icon";
 import { colors } from "@/components/plantia-theme";
 import { plantSession, usePlantControls } from "@/lib/plant-session";
 
+const shortId = (id: string) => {
+  const hex = id.replace(/[^0-9a-f]/gi, "");
+  return hex.length >= 4 ? hex.slice(-4).toUpperCase() : null;
+};
+
 export default function BluetoothScreen() {
   const state = usePlantControls();
   const attempted = useRef(false);
   const connected = state.connection === "connected";
+  const connectedDevice = state.rememberedDevices.find(device => device.name === state.device);
   const busy = state.connection === "scanning" || state.connection === "connecting" || state.connection === "disconnecting";
   useEffect(() => {
     if (attempted.current) return;
@@ -32,20 +38,26 @@ export default function BluetoothScreen() {
 
       {connected && <View style={styles.connectedCard}>
         <View style={styles.deviceIcon}><Icon name="wave" size={24} color={colors.paper} /></View>
-        <View style={{ flex: 1 }}><Text style={styles.deviceName}>{state.device}</Text><Text style={styles.connectedLabel}>CONECTADA · RECIBIENDO SEÑAL</Text></View>
+        <View style={{ flex: 1 }}><Text style={styles.deviceName}>{state.device}</Text><Text style={styles.connectedLabel}>CONECTADA · RECIBIENDO SEÑAL{connectedDevice && shortId(connectedDevice.id) ? ` · ID ${shortId(connectedDevice.id)}` : ""}</Text></View>
         <View style={styles.greenDot} />
       </View>}
 
-      {!connected && state.rememberedDevices.length > 0 && <View style={styles.section}>
+      {state.rememberedDevices.length > 0 && <View style={styles.section}>
         <Text style={styles.sectionTitle}>Tus plantas</Text>
-        {state.rememberedDevices.map(device => <Pressable key={device.id} disabled={busy}
-          accessibilityRole="button" accessibilityLabel={`Conectar con ${device.name}`}
-          onPress={() => void plantSession.connectRemembered(device.id)} style={styles.deviceRow}>
-          <View style={styles.deviceIcon}><Icon name="wave" size={21} color={colors.paper} /></View>
-          <View style={{ flex: 1 }}><Text style={styles.deviceName}>{device.name}</Text><Text style={styles.meta}>CONEXIÓN RÁPIDA</Text></View>
-          {state.connection === "connecting" && state.device === device.name
-            ? <ActivityIndicator color={colors.green} /> : <Icon name="chevron" size={17} color={colors.muted} />}
-        </Pressable>)}
+        {state.rememberedDevices.map(device => <View key={device.id} style={styles.deviceRow}>
+          <Pressable disabled={busy || connected} accessibilityRole="button" accessibilityLabel={`Conectar con ${device.name}${shortId(device.id) ? `, ID ${shortId(device.id)}` : ""}`}
+            onPress={() => void plantSession.connectRemembered(device.id)} style={styles.deviceConnect}>
+            <View style={styles.deviceIcon}><Icon name="wave" size={21} color={colors.paper} /></View>
+            <View style={{ flex: 1 }}><Text style={styles.deviceName}>{device.name}</Text><Text style={styles.meta}>{connected && connectedDevice?.id === device.id ? "CONECTADA" : "CONEXIÓN RÁPIDA"}{shortId(device.id) ? ` · ID ${shortId(device.id)}` : ""}</Text></View>
+            {state.connection === "connecting" && state.device === device.name
+              ? <ActivityIndicator color={colors.green} /> : <Icon name="chevron" size={17} color={colors.muted} />}
+          </Pressable>
+          <Pressable disabled={state.connection === "connecting" || state.connection === "disconnecting"}
+            accessibilityRole="button" accessibilityLabel={`Eliminar ${device.name} de los dispositivos guardados`}
+            onPress={() => plantSession.forgetDevice(device.id)} style={styles.removeDevice}>
+            <Icon name="close" size={17} color={colors.muted} />
+          </Pressable>
+        </View>)}
       </View>}
 
       {(state.connection === "scanning" || state.devices.length > 0) && <View style={styles.section}>
@@ -54,7 +66,7 @@ export default function BluetoothScreen() {
         {state.devices.map(device => <Pressable key={device.id} accessibilityRole="button"
           onPress={() => plantSession.selectDevice(device.id)} style={styles.deviceRow}>
           <View style={styles.deviceIcon}><Icon name="bluetooth" size={20} color={colors.paper} /></View>
-          <View style={{ flex: 1 }}><Text style={styles.deviceName}>{device.name}</Text><Text style={styles.meta}>NUEVA PLANTA</Text></View>
+          <View style={{ flex: 1 }}><Text style={styles.deviceName}>{device.name}</Text><Text style={styles.meta}>NUEVA PLANTA{shortId(device.id) ? ` · ID ${shortId(device.id)}` : ""}</Text></View>
           <Icon name="chevron" size={17} color={colors.muted} />
         </Pressable>)}
       </View>}
@@ -79,6 +91,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 34, letterSpacing: -1, color: colors.ink, marginBottom: 14 }, copy: { fontSize: 13, lineHeight: 20, color: colors.muted, maxWidth: 320 },
   section: { gap: 8 }, sectionHeading: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }, sectionTitle: { fontSize: 13, color: colors.ink, marginBottom: 5 },
   searching: { fontSize: 12, color: colors.muted, paddingVertical: 18 }, deviceRow: { minHeight: 78, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line, flexDirection: "row", alignItems: "center", gap: 14 },
+  deviceConnect: { flex: 1, minHeight: 78, flexDirection: "row", alignItems: "center", gap: 14 }, removeDevice: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   connectedCard: { minHeight: 94, paddingHorizontal: 16, borderRadius: 22, backgroundColor: colors.paper, flexDirection: "row", alignItems: "center", gap: 14 },
   deviceIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.forest, alignItems: "center", justifyContent: "center" },
   deviceName: { fontSize: 16, color: colors.ink }, meta: { fontSize: 8, color: colors.muted, letterSpacing: 1.3, marginTop: 6 }, connectedLabel: { fontSize: 8, color: colors.green, letterSpacing: 1.2, marginTop: 6 }, greenDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.green },

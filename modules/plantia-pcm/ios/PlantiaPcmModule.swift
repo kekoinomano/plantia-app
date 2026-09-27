@@ -15,6 +15,14 @@ public class PlantiaPcmModule: Module {
     Function("sample") { (id: Int, key: Int, data: Data) in
       PlantiaPcmBridge.sample(NSNumber(value: id), key: NSNumber(value: key), data: data)
     }
+    Function("loadSfz") { (id: Int, key: Int, lane: Int, path: String, gain: Double, tuning: Double) in
+      PlantiaPcmBridge.loadSfz(NSNumber(value: id), key: NSNumber(value: key), lane: NSNumber(value: lane), path: path,
+        gain: NSNumber(value: gain), tuning: NSNumber(value: tuning))
+    }
+    Function("scheduleSfz") { (id: Int, time: Double, key: Int, note: Int, velocity: Int, duration: Double) in
+      PlantiaPcmBridge.scheduleSfz(NSNumber(value: id), time: NSNumber(value: time), key: NSNumber(value: key),
+        note: NSNumber(value: note), velocity: NSNumber(value: velocity), duration: NSNumber(value: duration))
+    }
     Function("retain") { (id: Int, keys: [Double]) in
       PlantiaPcmBridge.retainSamples(NSNumber(value: id), keys: keys.map { NSNumber(value: $0) })
     }

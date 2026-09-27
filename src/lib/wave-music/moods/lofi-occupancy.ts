@@ -43,7 +43,7 @@ export function orchestrateLofi(input: readonly WaveNote[], bpm: number, swing: 
       // low kick/bass support may overlap; they have different musical roles.
       const touchesSolo = solo.some(other => accepted.has(other) && Math.abs(onset(other) - onset(note)) < 0.12);
       if (touchesSolo && note.preset === 'soft-hat') continue;
-      if (touchesSolo && note.preset === 'brush-snare') note.velocity *= 0.8;
+      if (touchesSolo && note.preset === 'soft-snare') note.velocity *= 0.8;
       admit(note, barEnd);
     }
   }

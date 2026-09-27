@@ -46,4 +46,4 @@ for (const [program, notes] of Object.entries({
 }
 manifest.percussionSource = { repository, revision, license: 'CC-BY-3.0' };
 await writeFile(manifestUrl, JSON.stringify(manifest, null, 2) + '\n');
-console.log(`Imported 7 percussion instruments: ${total} bytes. Run npm run sonora:build.`);
+console.log(`Imported 7 legacy test instruments: ${total} bytes.`);

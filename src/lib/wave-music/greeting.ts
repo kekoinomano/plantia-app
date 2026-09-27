@@ -2,7 +2,10 @@ import type { PlantPacket } from '../plant-packet';
 
 export type RawGreeting = { time: number; sequence: number; direction: -1 | 1;
   strength: number; peakMs: number; baselineMs: number; thresholdRatio: number };
-const median = (values: number[]) => values[Math.floor(values.length / 2)] ?? 0;
+const median = (values: number[]) => {
+  const middle = Math.floor(values.length / 2);
+  return values.length % 2 ? values[middle] : values.length ? (values[middle - 1] + values[middle]) / 2 : 0;
+};
 /** Raw, reception-clock detector. This runs BEFORE FFT/reduction. A transient is
  * unusual relative to the raw distribution, not merely large in absolute units.
  * Thresholds are musical event heuristics, not biological classifications. */
@@ -34,7 +37,10 @@ export class GreetingDetector {
         const deviations = old.map(v => Math.abs(v - this.center)).sort((a, b) => a - b);
         const mad = median(deviations);
         const extreme = deviations[Math.floor((deviations.length - 1) * .99)];
-        this.threshold = Math.max(Math.log(1.7), 8 * 1.4826 * mad, 1.6 * extreme);
+        // Compare with the signal's usual excursions. The graph also centers
+        // these small variations, so a visible spike need not change the raw
+        // period by anything close to 70%.
+        this.threshold = Math.max(Math.log(1.005), 2 * mad, 1.6 * extreme);
       }
       this.statsAt = now;
     }
@@ -42,7 +48,7 @@ export class GreetingDetector {
     const deltas = values.map(v => v - this.center);
     const extremeIndex = deltas.reduce((best, value, i) => Math.abs(value) > Math.abs(deltas[best]) ? i : best, 0);
     const delta = deltas[extremeIndex];
-    const confirmed = deltas.filter(v => Math.sign(v) === Math.sign(delta) && Math.abs(v) > this.threshold).length >= 2 || Math.abs(delta) > this.threshold * 2;
+    const confirmed = deltas.filter(v => Math.sign(v) === Math.sign(delta) && Math.abs(v) > this.threshold).length >= 2 || Math.abs(delta) > this.threshold * 1.1;
     const fire = now - this.started >= 2 && now - this.lastGreeting >= 8 && confirmed && Math.abs(delta) > this.threshold;
     this.history.push({ time: now, values });
     if (!fire) return null;

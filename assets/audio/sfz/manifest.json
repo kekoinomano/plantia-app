@@ -1,0 +1,116 @@
+{
+  "piano-steinway": {
+    "patch": "Steinway B Compact.sfz",
+    "pack": "piano-steinway.sfzpack",
+    "samples": 75,
+    "program": "acoustic_grand_piano",
+    "gain": 2.2
+  },
+  "piano-ghibli": {
+    "patch": "Steinway B Ghibli.sfz",
+    "packs": [
+      "piano-ghibli-soft.sfzpack",
+      "piano-ghibli-medium.sfzpack",
+      "piano-ghibli-bright.sfzpack"
+    ],
+    "samples": 92,
+    "program": "ghibli_grand_piano",
+    "gain": 2.2
+  },
+  "bass-recorder": {
+    "patch": "Baroque Bass Recorder - Sustain.sfz",
+    "pack": "bass-recorder.sfzpack",
+    "samples": 12,
+    "program": "bass_recorder",
+    "gain": 6,
+    "minNote": 53,
+    "maxNote": 79
+  },
+  "renaissance-organ": {
+    "patch": "Renaissance Organ - Full.sfz",
+    "pack": "renaissance-organ.sfzpack",
+    "samples": 27,
+    "program": "renaissance_organ",
+    "gain": 0.8,
+    "minNote": 36,
+    "maxNote": 89
+  },
+  "vibraphone": {
+    "patch": "Vibraphone - Soft Mallets.sfz",
+    "pack": "vibraphone.sfzpack",
+    "samples": 22,
+    "program": "vibraphone",
+    "gain": 5,
+    "minNote": 53,
+    "maxNote": 89
+  },
+  "strumstick": {
+    "patch": "Strumstick.sfz",
+    "pack": "strumstick.sfzpack",
+    "samples": 57,
+    "program": "strumstick",
+    "gain": 5,
+    "minNote": 48,
+    "maxNote": 84
+  },
+  "dan-tranh": {
+    "patch": "Dan Tranh - Normal.sfz",
+    "pack": "dan-tranh.sfzpack",
+    "samples": 48,
+    "program": "dan_tranh",
+    "gain": 5,
+    "minNote": 47,
+    "maxNote": 84
+  },
+  "soft-kick": {
+    "patch": "Soft Kick.sfz",
+    "pack": "soft-kick.sfzpack",
+    "samples": 4,
+    "program": "soft_kick",
+    "gain": 1,
+    "fixedNote": 36
+  },
+  "soft-snare": {
+    "patch": "Soft Snare.sfz",
+    "pack": "soft-snare.sfzpack",
+    "samples": 4,
+    "program": "soft_snare",
+    "gain": 1,
+    "fixedNote": 38
+  },
+  "soft-hat": {
+    "patch": "Soft Hat.sfz",
+    "pack": "soft-hat.sfzpack",
+    "samples": 4,
+    "program": "soft_hat",
+    "gain": 1,
+    "fixedNote": 42
+  },
+  "tenor-saxophone": {
+    "patch": "Tenor Saxophone - Non-Vibrato.sfz",
+    "pack": "tenor-saxophone.sfzpack",
+    "samples": 46,
+    "program": "tenor_saxophone",
+    "gain": 1.8,
+    "minNote": 44,
+    "maxNote": 89
+  },
+  "tenor-saxophone-short": {
+    "patch": "Tenor Saxophone - Staccato.sfz",
+    "pack": "tenor-saxophone-short.sfzpack",
+    "samples": 40,
+    "program": "tenor_saxophone_short",
+    "gain": 1.5,
+    "minNote": 44,
+    "maxNote": 89
+  },
+  "bell-tree": {
+    "patch": "Bell Tree.sfz",
+    "pack": "bell-tree.sfzpack",
+    "samples": 5,
+    "program": "bell_tree",
+    "gain": 2.2,
+    "minNote": 60,
+    "maxNote": 64
+  }
+}

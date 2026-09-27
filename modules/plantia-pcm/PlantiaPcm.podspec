@@ -11,7 +11,10 @@ Pod::Spec.new do |s|
   s.swift_version = '5.9'
   s.static_framework = true
   s.dependency 'ExpoModulesCore'
+  s.vendored_frameworks = 'ios/vendor/Sfizz.xcframework'
+  s.frameworks = 'Accelerate'
   s.source_files = 'ios/*.{h,mm,swift}', 'cpp/*.{h,cpp}'
+  s.preserve_paths = 'third_party/sfizz-1.2.3/src/sfizz.h', 'third_party/sfizz-1.2.3/src/sfizz_message.h'
   s.public_header_files = 'ios/PlantiaPcmBridge.h'
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17', 'OTHER_CPLUSPLUSFLAGS' => '$(inherited) -O3 -ffp-contract=off' }
 end

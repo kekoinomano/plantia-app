@@ -9,6 +9,8 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <string>
+#include "../third_party/sfizz-1.2.3/src/sfizz.h"
 
 // Numerical counterpart of src/lib/sonora/dsp.ts. Buffers are float32, state
 // and intermediate arithmetic are double, matching JS. No fast-math or FMA.
@@ -19,10 +21,9 @@ inline double clamp(double x, double lo = 0, double hi = 1) { return std::max(lo
 inline double smooth(double x) { double v = clamp(x); return v*v*(3-2*v); }
 inline double outputSample(double x) {
   double magnitude=std::abs(x);
-  return std::copysign(magnitude<=.72?magnitude:.72+.23*std::tanh((magnitude-.72)/.23),x);
+  return std::copysign(magnitude<=.65?magnitude:.65+.22*std::tanh((magnitude-.65)/.22),x);
 }
-constexpr double CHARACTER_GAIN = 3.6;
-constexpr double OUTPUT_GAIN = 2.5;
+constexpr double MASTER_GAIN = 9;
 inline double sine(double phase) {
   static const auto table = [] {
     std::array<float, 2049> t{};
@@ -31,6 +32,13 @@ inline double sine(double phase) {
   }();
   double x=(phase-std::floor(phase))*2048; int i=static_cast<int>(x);
   return double(table[i])+(double(table[i+1])-table[i])*(x-i);
+}
+inline double sampleAt(const std::vector<float>& data,double position) {
+  size_t i=static_cast<size_t>(std::floor(position));double t=position-i;
+  if(i+1>=data.size())return 0;
+  if(i<1||i+2>=data.size())return double(data[i])+(double(data[i+1])-data[i])*t;
+  double a=data[i-1],b=data[i],c=data[i+1],d=data[i+2];
+  return b+.5*t*(c-a+t*(2*a-5*b+4*c-d+t*(3*(b-c)+d-a)));
 }
 struct Patch { double delayOn=0, delayWet=0, delayRate=50, chorusOn=0, depth=0, chorusRate=0, reverbOn=0, reverbWet=0, amount=0; };
 struct Effects {
@@ -80,9 +88,12 @@ struct Voice {
   double evolution=0, decay=0, blend=0;
   int lane=0, kind=0, model=0, family=0, trace=0;
   std::array<double,8> harmonics{}; std::array<double,4> ratios{};
-  std::shared_ptr<std::vector<float>> sample, sample2;
+  std::shared_ptr<std::vector<float>> sample, sample2, sampleRight;
 };
 struct Event {int type=0,lane=-1;double time=0,smoothing=.4; Voice voice; std::array<double,13> expression{};};
+struct SfzEvent { double time=0; int key=0, note=0, velocity=0; bool on=false; };
+struct SfzSynthDeleter { void operator()(sfizz_synth_t* p) const { if(p)sfizz_free(p); } };
+struct SfzLayer { std::unique_ptr<sfizz_synth_t,SfzSynthDeleter> synth; int lane=0; double gain=0.1; };
 class Core {
   double rate,duck=1,synthDuck=1,greetingAt=-INF,instrumentAt=-INF,dcL=0,dcR=0,smoothing=.4;
   uint64_t cursor=0;
@@ -95,14 +106,20 @@ class Core {
   std::array<double,13> target=expression;
   std::unordered_map<int,std::shared_ptr<std::vector<float>>> samples;
   std::vector<Voice> voices; std::vector<Event> pending;
+  std::unordered_map<int,SfzLayer> sfz;
+  std::vector<SfzEvent> sfzEvents;
   std::unordered_set<double> cancelled;
 public:
   explicit Core(double r):rate(r) {
     if(!std::isfinite(r)||r<8000||r>96000)throw std::invalid_argument("Invalid sample rate");
   }
   double time() const {return double(cursor)/rate;}
-  size_t voiceCount() const {return voices.size();}
-  size_t pendingCount() const {return pending.size();}
+  size_t voiceCount() const {
+    size_t count=voices.size();
+    for(const auto& [lane,layer]:sfz)count+=size_t(sfizz_get_num_active_voices(layer.synth.get()));
+    return count;
+  }
+  size_t pendingCount() const {return pending.size()+sfzEvents.size();}
   void sample(int id,const float* data,size_t count) {
     samples[id]=std::make_shared<std::vector<float>>(data,data+count);
   }
@@ -112,6 +129,30 @@ public:
       if(std::find(ids,ids+count,it->first)==ids+count)it=samples.erase(it);else ++it;
     }
   }
+  void loadSfz(int key,int lane,const std::string& path,double gain,double tuning) {
+    if(lane<0||size_t(lane)>=kinds.size())throw std::invalid_argument("Invalid SFZ lane");
+    if(!std::isfinite(tuning)||tuning<200||tuning>800)throw std::invalid_argument("Invalid SFZ tuning");
+    sfzEvents.erase(std::remove_if(sfzEvents.begin(),sfzEvents.end(),[key](const auto& e){return e.key==key;}),sfzEvents.end());
+    if(path.empty()){sfz.erase(key);return;}
+    SfzLayer layer;
+    layer.synth.reset(sfizz_create_synth());
+    if(!layer.synth)throw std::runtime_error("Cannot create SFZ synth");
+    sfizz_set_sample_rate(layer.synth.get(),float(rate));
+    sfizz_set_samples_per_block(layer.synth.get(),4096);
+    sfizz_set_num_voices(layer.synth.get(),32);
+    if(!sfizz_load_file(layer.synth.get(),path.c_str()))throw std::runtime_error("Cannot load SFZ: "+path);
+    sfizz_set_tuning_frequency(layer.synth.get(),float(tuning));
+    layer.lane=lane;layer.gain=clamp(gain,0,8);
+    sfz[key]=std::move(layer);
+  }
+  bool hasSfz(int key) const {return sfz.find(key)!=sfz.end();}
+  void scheduleSfz(double time,int key,int note,int velocity,double duration) {
+    if(!hasSfz(key))throw std::invalid_argument("No SFZ layer");
+    if(note<0||note>127||velocity<1||velocity>127||duration<=0)throw std::invalid_argument("Invalid SFZ note");
+    sfzEvents.push_back({time,key,note,velocity,true});
+    sfzEvents.push_back({time+duration,key,note,0,false});
+    std::stable_sort(sfzEvents.begin(),sfzEvents.end(),[](const auto&a,const auto&b){return a.time<b.time;});
+  }
   void configure(const double* p,size_t n) {
     const bool legacy=n==30;
     if(!legacy&&(n<12||(n-1)%11))throw std::invalid_argument("Invalid configuration");
@@ -120,6 +161,7 @@ public:
     bool reset=legacy?buses.size()!=count:p[0]!=0||buses.size()!=count;
     if(reset) {
       voices.clear();pending.clear();cancelled.clear();buses.clear();
+      sfz.clear();sfzEvents.clear();
       for(size_t j=0;j<count;j++)buses.emplace_back(rate);
       duck=synthDuck=1;greetingAt=instrumentAt=-INF;
     }
@@ -135,7 +177,7 @@ public:
     if(n<2)throw std::invalid_argument("Invalid event");
     Event e; e.type=int(p[0]);e.time=p[1];
     if(e.type==0) {
-      if(n!=41)throw std::invalid_argument("Invalid note");
+      if(n!=41&&n!=42)throw std::invalid_argument("Invalid note");
       auto& v=e.voice;
       v.id=p[2];v.time=p[3];v.sourceTime=p[4];v.lane=int(p[5]);v.stop=p[6];v.attack=p[7];v.release=p[8];
       auto get=[&](int id){auto it=samples.find(id);return it==samples.end()?std::shared_ptr<std::vector<float>>{}:it->second;};
@@ -145,6 +187,7 @@ public:
       for(int j=0;j<8;j++)v.harmonics[j]=p[27+j];
       for(int j=0;j<4;j++)v.ratios[j]=p[35+j];
       v.phase=p[39];v.phase2=p[40];
+      if(n==42)v.sampleRight=get(int(p[41]));
       if(v.lane<0||size_t(v.lane)>=kinds.size())throw std::invalid_argument("Invalid lane");
       v.kind=kinds[v.lane];
     } else if(e.type==1) {
@@ -153,11 +196,36 @@ public:
       if(n==16){e.expression[12]=clamp(p[14],-20,20);e.smoothing=std::max(.05,p[15]);}
     } else if(e.type==2) {
       if(n!=3)throw std::invalid_argument("Invalid release");e.lane=int(p[2]);
+      for(const auto& [key,layer]:sfz)if(e.lane<0||e.lane==layer.lane)
+        sfzEvents.push_back({e.time,key,-1,0,false});
+      std::stable_sort(sfzEvents.begin(),sfzEvents.end(),[](const auto&a,const auto&b){return a.time<b.time;});
     } else throw std::invalid_argument("Invalid event type");
     pending.push_back(std::move(e));
     std::stable_sort(pending.begin(),pending.end(),[](const Event&a,const Event&b){return a.time<b.time;});
   }
   void render(float* l,float* r,size_t frames) {
+    if(!sfz.empty()&&frames>4096)throw std::invalid_argument("SFZ block exceeds maximum size");
+    std::unordered_map<int,std::array<std::vector<float>,2>> sfzAudio;
+    const double blockEnd=time()+double(frames)/rate;
+    size_t sfzUsed=0;
+    for(auto& [key,layer]:sfz) {
+      auto& audio=sfzAudio[key];audio[0].resize(frames);audio[1].resize(frames);
+      for(const auto& e:sfzEvents) {
+        if(e.time>=blockEnd)break;
+        if(e.key!=key)continue;
+        int delay=std::clamp(int(std::ceil((e.time-time())*rate)),0,int(frames)-1);
+        if(e.note<0)sfizz_send_cc(layer.synth.get(),delay,123,0);
+        else if(e.on) {
+          sfizz_send_note_on(layer.synth.get(),delay,e.note,e.velocity);
+          if(kinds[layer.lane]==1&&levels[layer.lane]>0)instrumentAt=e.time;
+        }
+        else sfizz_send_note_off(layer.synth.get(),delay,e.note,0);
+      }
+      float* channels[]={audio[0].data(),audio[1].data()};
+      sfizz_render_block(layer.synth.get(),channels,2,int(frames));
+    }
+    while(sfzUsed<sfzEvents.size()&&sfzEvents[sfzUsed].time<blockEnd)sfzUsed++;
+    sfzEvents.erase(sfzEvents.begin(),sfzEvents.begin()+sfzUsed);
     size_t atEvent=0;std::array<double,3> maxima{};
     double dc=1-std::exp(-TAU*18/rate),slew=1-std::exp(-1/(smoothing*rate));
     double duckAttack=1-std::exp(-1/(.08*rate)),duckRelease=1-std::exp(-1/(.8*rate));
@@ -189,26 +257,32 @@ public:
       for(int j=0;j<13;j++)expression[j]+=(target[j]-expression[j])*slew;
       double brightness=clamp(expression[0]),energy=clamp(expression[1]);
       std::array<double,9> left{},right{};
+      for(const auto& [key,audio]:sfzAudio) {
+        const auto& layer=sfz.at(key);
+        left[layer.lane]+=audio[0][i]*layer.gain;right[layer.lane]+=audio[1][i]*layer.gain;
+      }
       for(auto& v:voices) {
         double age=t-v.time;
         if(t>std::min(v.stop+v.release,v.forced))continue;
         double envelope=(age<v.attack?smooth(age/v.attack):1)*(t<v.stop?1:1-smooth((t-v.stop)/v.release))*(v.forced==INF?1:clamp((v.forced-t)/.025));
-        double value=0;
+        double value=0,rightValue=0;
         if(v.sample) {
-          size_t p=size_t(std::floor(v.position));const auto&a=*v.sample;
-          if(p+1<a.size())value=double(a[p])+(double(a[p+1])-a[p])*(v.position-p);
+          value=sampleAt(*v.sample,v.position);
+          rightValue=v.sampleRight?sampleAt(*v.sampleRight,v.position):value;
           v.position+=v.increment*(v.model==8?1+.0018*sine(age*.27)+.0006*sine(age*4.3):1);
           if(v.sample2) {
-            size_t q=size_t(std::floor(v.position2));const auto&b=*v.sample2;
-            double other=q+1<b.size()?double(b[q])+(double(b[q+1])-b[q])*(v.position2-q):0;
-            value=value*.6+other*.4;v.position2+=v.increment2;
+            double other=sampleAt(*v.sample2,v.position2);
+            value=value*.6+other*.4;rightValue=rightValue*.6+other*.4;v.position2+=v.increment2;
           }
         } else if(v.model==3) {
           double phase=age*v.frequency;
           value=(sine(phase+.12*sine(phase*2)*std::exp(-age*1.8))*.8+
             sine(phase*3)*.12*std::exp(-age*4))*std::exp(-age*(.6+v.color*.3));
         } else if(v.model==4) {
-          value=(sine(age*v.frequency)*.85+sine(age*v.frequency*2)*.12)*std::exp(-age*.7);
+          value=sine(age*v.frequency)*.75*std::exp(-age*.65)
+            +sine(age*v.frequency*2)*.4*std::exp(-age*1.1)
+            +sine(age*v.frequency*3)*.2*std::exp(-age*1.7)
+            +sine(age*v.frequency*4)*.08*std::exp(-age*2.4);
         } else if(v.model==5) {
           value=sine(48*age+2.7*(1-std::exp(-age*30)))*std::exp(-age*14);
         } else if(v.model==6||v.model==7) {
@@ -257,17 +331,17 @@ public:
           v.filterState+=(value-v.filterState)*(1-std::exp(-TAU*cutoff/rate));
           value=std::tanh(v.filterState*1.35)/1.35;
         }
-        value*=envelope*v.gain;
+        value*=envelope*v.gain;rightValue*=envelope*v.gain;
         if(v.kind==0) {
           double drift=expression[2]*.13+sine(age*.08+v.pan)*.05;
-          left[v.lane]+=value*v.panL*(1-drift);right[v.lane]+=value*v.panR*(1+drift);
-        } else {left[v.lane]+=value*v.panL;right[v.lane]+=value*v.panR;}
+          left[v.lane]+=value*v.panL*(1-drift);right[v.lane]+=(v.sample?rightValue:value)*v.panR*(1+drift);
+        } else {left[v.lane]+=value*v.panL;right[v.lane]+=(v.sample?rightValue:value)*v.panR;}
       }
       double duckTarget=t-greetingAt<.65&&!levels.empty()&&levels.back()>0?.85:1;
       duck+=(duckTarget-duck)*(duckTarget<duck?duckAttack:duckRelease);
       bool audibleInstrument=false;
       for(size_t j=0;j<levels.size();j++)if(kinds[j]==1&&levels[j]>0)audibleInstrument=true;
-      double synthDuckTarget=t-instrumentAt<.32&&audibleInstrument?.88:1;
+      double synthDuckTarget=t>=instrumentAt&&t-instrumentAt<.32&&audibleInstrument?.88:1;
       synthDuck+=(synthDuckTarget-synthDuck)*(synthDuckTarget<synthDuck?duckAttack:duckRelease);
       double outL=0,outR=0;
       for(size_t j=0;j<levels.size();j++) {
@@ -278,8 +352,8 @@ public:
         maxima[kind]=std::max(maxima[kind],std::max(std::abs(b[0]*gain),std::abs(b[1]*gain)));
       }
       dcL+=(outL-dcL)*dc;dcR+=(outR-dcR)*dc;
-      l[i]=clamp(outputSample((outL-dcL)*CHARACTER_GAIN)*OUTPUT_GAIN,-.98,.98);
-      r[i]=clamp(outputSample((outR-dcR)*CHARACTER_GAIN)*OUTPUT_GAIN,-.98,.98);
+      l[i]=outputSample((outL-dcL)*MASTER_GAIN);
+      r[i]=outputSample((outR-dcR)*MASTER_GAIN);
       if(cursor%128==0)voices.erase(std::remove_if(voices.begin(),voices.end(),[t](const Voice&v){return !(t<std::min(v.stop+v.release,v.forced));}),voices.end());
     }
     pending.erase(pending.begin(),pending.begin()+atEvent);

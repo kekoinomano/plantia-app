@@ -31,8 +31,7 @@ mantiene el índice estático de muestras para Metro. No se ha ejecutado en esta
 revisión, ni se han ejecutado tests, renders o compilaciones.
 
 Los IDs antiguos desconocidos vuelven al perfil por defecto. `lofi` se migra a
-`lofi-waves`. Los campos de configuración de synth/instrument y el bus silencioso
-`$greeting` permanecen por compatibilidad con el protocolo del renderer: no son
-un segundo motor ni una fuente independiente de saludos.
+`lofi-waves`. El canal `$greeting` reproduce las cinco tomas compactas de bell
+tree desde el compositor común, independientemente del mood.
 
 Diseño musical y fuentes: [WAVE_MOODS.md](../../../docs/music/WAVE_MOODS.md).

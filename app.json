@@ -29,6 +29,7 @@
       "./plugins/with-android-dev-app",
       "expo-router",
       "expo-asset",
+      "react-native-zip-archive",
       [
         "expo-splash-screen",
         {

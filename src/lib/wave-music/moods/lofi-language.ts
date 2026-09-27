@@ -4,8 +4,8 @@ export const LOFI_LANGUAGE = {
   version: 12,
   tempo: [64, 86],
   scenes: [
-    { id: 'muted-strings', name: 'Cuerdas apagadas', base: 'guitar', lead: 'pianoforte', baseVelocity: 38, leadVelocity: 43, gate: 1.45, color: .15 },
-    { id: 'warm-keys', name: 'Rhodes cálido', base: 'electric-piano', lead: 'pianoforte', baseVelocity: 38, leadVelocity: 44, gate: 2.1, color: .18 },
+    { id: 'muted-strings', name: 'Strumstick cálido', base: 'strumstick', lead: 'pianoforte', baseVelocity: 38, leadVelocity: 43, gate: 1.45, color: .15 },
+    { id: 'warm-keys', name: 'Vibráfono suave', base: 'vibraphone', lead: 'pianoforte', baseVelocity: 38, leadVelocity: 44, gate: 2.1, color: .18 },
     { id: 'felt-room', name: 'Piano íntimo', base: 'pianoforte', lead: 'pianoforte', baseVelocity: 34, leadVelocity: 43, gate: 2.35, color: .12 },
   ],
   // Accepted acoustic piano articulation, without pitch modulation.
@@ -35,7 +35,7 @@ export const LOFI_LANGUAGE = {
     { name: 'Roto suave', kicks: [[0,7],[0,6]], hats: [[2,6,14],[2,10,14]], swing: .20 },
     { name: 'Abierto', kicks: [[0],[0,8]], hats: [[2,10],[6,14]], swing: .09 },
   ],
-  mix: { body: .24, lead: .27, detail: .23, bass: .34, drums: .20, greeting: .28 },
+  mix: { body: .24, lead: .27, detail: .23, bass: .34, drums: .20 },
   limits: { pitchedVoices: 5, melodyNotes: 3, bassNotes: 2, chordVoices: 3, leadRange: [60,72], bassRange: [33,48] },
 } as const;
 export type LofiScene = typeof LOFI_LANGUAGE.scenes[number];

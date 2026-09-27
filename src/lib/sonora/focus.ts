@@ -1,5 +1,5 @@
 import { WAVE_MOODS, waveMood } from '../wave-music/registry';
-export type ProfileId = 'deep-focus' | 'sleep' | 'psychedelic' | 'ghibli' | 'lofi-waves';
+export type ProfileId = 'deep-focus' | 'sleep' | 'psychedelic' | 'ghibli' | 'lofi-waves' | 'space' | 'smooth-techno' | 'jazz-session';
 export type ListeningProfile = {
   id: ProfileId; name: string; description: string;
   notes: readonly number[]; tuning: number;

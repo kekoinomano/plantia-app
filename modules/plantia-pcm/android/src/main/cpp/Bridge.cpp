@@ -17,6 +17,14 @@ JNIEXPORT void JNICALL JNI_METHOD(sampleNative)(JNIEnv*env,jobject,jint id,jint 
   std::vector<float> v(bytes/4);env->GetByteArrayRegion(a,0,bytes,reinterpret_cast<jbyte*>(v.data()));
   sonora::get(id).sample(key,v.data(),v.size());
 }FAIL()}
+JNIEXPORT void JNICALL JNI_METHOD(loadSfzNative)(JNIEnv*env,jobject,jint id,jint key,jint lane,jstring path,jdouble gain,jdouble tuning){GUARD{
+  const char* value=env->GetStringUTFChars(path,nullptr);
+  std::string filename(value);env->ReleaseStringUTFChars(path,value);
+  sonora::get(id).loadSfz(key,lane,filename,gain,tuning);
+}FAIL()}
+JNIEXPORT void JNICALL JNI_METHOD(scheduleSfzNative)(JNIEnv*env,jobject,jint id,jdouble time,jint key,jint note,jint velocity,jdouble duration){GUARD{
+  sonora::get(id).scheduleSfz(time,key,note,velocity,duration);
+}FAIL()}
 JNIEXPORT jbyteArray JNICALL JNI_METHOD(renderNative)(JNIEnv*env,jobject,jint id,jint frames){GUARD{
   if(frames<1||frames>96000)throw std::invalid_argument("Invalid block size");
   std::vector<float> pcm(frames*2);sonora::get(id).render(pcm.data(),pcm.data()+frames,frames);

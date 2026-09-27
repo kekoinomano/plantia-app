@@ -16,6 +16,9 @@ export const moodPalettes: Record<string, { accent: string; wash: string; deep: 
   "lofi-waves": { accent: "#9A604D", wash: "#EADDD4", deep: "#382820" },
   psychedelic: { accent: "#735F82", wash: "#E6DDE8", deep: "#302838" },
   ghibli: { accent: "#4E7770", wash: "#DCE8E3", deep: "#22332F" },
+  space: { accent: "#7075A3", wash: "#E2E4F2", deep: "#20243D" },
+  "smooth-techno": { accent: "#477B83", wash: "#DDEBED", deep: "#193A42" },
+  "jazz-session": { accent: "#9A6840", wash: "#F0E5D8", deep: "#48301E" },
 };
 
 export const moodPalette = (id: string) => moodPalettes[id] ?? moodPalettes["deep-focus"];

@@ -1,4 +1,4 @@
-import type { AudioBufferQueueSourceNode, AudioContext, GainNode } from "react-native-audio-api";
+import type { AnalyserNode, AudioBufferQueueSourceNode, AudioContext, GainNode } from "react-native-audio-api";
 import type { Bank } from "../sonora/dsp";
 import { NativePcmCore } from "./native-pcm";
 import { AppState, Platform } from "react-native";
@@ -18,6 +18,8 @@ const SILENT = 0.00001;
 export class NativeSynth {
   private core: NativePcmCore;
   private output: GainNode;
+  private analyser: AnalyserNode | null = null;
+  private analysisBuffer = new Float32Array(2048);
   private source: AudioBufferQueueSourceNode | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private wakeAt = Infinity;
@@ -58,7 +60,12 @@ export class NativeSynth {
     this.blockSeconds = this.frames / context.sampleRate;
     this.output = context.createGain();
     this.output.gain.value = 0;
-    this.output.connect(context.destination);
+    if (__DEV__) {
+      this.analyser = context.createAnalyser();
+      this.analyser.fftSize = this.analysisBuffer.length;
+      this.output.connect(this.analyser);
+      this.analyser.connect(context.destination);
+    } else this.output.connect(context.destination);
     this.log("INIT");
     this.log("CONFIG", this.configurationLog(config));
 
@@ -87,8 +94,8 @@ export class NativeSynth {
       } } : {}),
     })));
     const logNotes = __DEV__ && performance.now() - this.lastNoteLog >= 2000;
-    const notes = (logNotes ? events : [])
-      .filter((e): e is Extract<Event, { type: "note" }> => e.type === "note")
+    const notes = events
+      .filter((e): e is Extract<Event, { type: "note" }> => e.type === "note" && __DEV__ && (logNotes || !!e.note.rawGreeting))
       .map((e) => ({ slot: e.note.slot, lane: e.note.lane, midi: e.note.midi,
         delayMs: Math.round((e.note.time - e.note.sourceTime) * 1000),
         durationMs: Math.round(e.note.duration * 1000),
@@ -99,7 +106,7 @@ export class NativeSynth {
           components: e.note.wave.components.map(w => ({ id: w.id, weight: w.weight })) } : undefined,
         queueMs: Math.round(this.remaining() * 1000) }));
     if (notes.length) {
-      this.lastNoteLog = performance.now();
+      if (logNotes) this.lastNoteLog = performance.now();
       console.info("[Plantia Music]", JSON.stringify({ event: "NOTES", notes }));
     }
     this.active = true;
@@ -304,15 +311,28 @@ export class NativeSynth {
     this.closed = true;
     this.reset();
     this.output.disconnect();
+    this.analyser?.disconnect();
   }
 
   private log(event: string, extra: Record<string, unknown> = {}) {
     this.lastLog = performance.now();
+    let outputLevel: Record<string, number> = {};
+    if (event === "STATUS" && this.analyser) {
+      this.analyser.getFloatTimeDomainData(this.analysisBuffer);
+      let peak = 0, power = 0;
+      for (const sample of this.analysisBuffer) {
+        peak = Math.max(peak, Math.abs(sample));
+        power += sample * sample;
+      }
+      outputLevel = { outputPeak: Math.round(peak * 10000) / 10000,
+        outputRms: Math.round(Math.sqrt(power / this.analysisBuffer.length) * 10000) / 10000 };
+    }
     const data = { event, engine: "native-cpp", platform: Platform.OS,
       rate: this.context.sampleRate, blockMs: Math.round(this.blockSeconds * 1000),
       renderMs: Math.round(this.lastRenderMs * 10) / 10,
       queuedMs: Math.round(this.remaining() * 1000), targetMs: Math.round(this.reserve * 1000),
       peak: Math.round(this.peak * 10000) / 10000,
+      ...outputLevel,
       ...this.core.status, underruns: this.underruns,
       packetAgeMs: this.lastPacket ? Math.round((this.context.currentTime - this.lastPacket) * 1000) : null,
       ...extra };
@@ -336,8 +356,8 @@ export class NativeSynth {
       effects: { synth: effects(config.synth), instrument: effects(config.instrument) },
       synthMotion: config.synthMotion,
       profile: config.profile, volume: config.volume,
-      masterGain: 3.6,
-      outputGain: 2.5,
+      masterGain: 9,
+      outputCeiling: 0.87,
     };
   }
 

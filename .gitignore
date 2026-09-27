@@ -47,5 +47,10 @@ example
 /modules/*/android/.cxx/
 /modules/*/android/.gradle/
 /modules/*/android/.kotlin/
+
+# Local sfizz source and compiled iOS framework for Plantia PCM
+/modules/plantia-pcm/third_party/sfizz-1.2.3/
+/modules/plantia-pcm/ios/vendor/Sfizz.xcframework/
 /output/
 /inspiration/
+/.sample-library/

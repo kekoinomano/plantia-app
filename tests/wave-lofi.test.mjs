@@ -85,8 +85,8 @@ test('el saludo entra en el compositor sin FFT y deja la primera línea libre',a
   }
   assert.equal(composer.analysisSnapshot,null);
   const greetings=events.filter(e=>e.type==='note'&&e.note.rawGreeting);
-  assert.equal(greetings.length,2); assert.ok(greetings.every(e=>e.note.rawGreeting.sequence===80));
-  assert.ok(greetings.every(e=>e.note.slot==='counter'&&!e.note.wave));
+  assert.equal(greetings.length,1); assert.ok(greetings.every(e=>e.note.rawGreeting.sequence===80));
+  assert.ok(greetings.every(e=>e.note.slot==='$greeting'&&e.note.lane==='greeting'&&e.note.patch.preset==='bell-tree'&&!e.note.wave));
   assert.ok(events.some(e=>e.type==='release'&&e.slot==='contour'));
   composer.finish(5);
 });

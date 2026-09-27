@@ -37,9 +37,9 @@ ajuste no certifica actividad biológica. La media centrada sigue siendo una ent
 
 | Conjunto | Base armónica | Primer plano | Bajo y batería | Carácter |
 |---|---|---|---|---|
-| Rhodes cálido | electric-piano, dos/tres voces | piano acústico con resolución | round-bass, soft-kick, brush-snare, soft-hat | redondo, sincopado |
+| Vibráfono suave | vibraphone, dos/tres voces | piano acústico con resolución | round-bass, soft-kick, soft-snare, soft-hat | redondo, sincopado |
 | Piano íntimo | pianoforte, dos/tres voces | piano acústico con resolución | mismo soporte, articulación más espaciada | más acústico y abierto |
-| Cuerdas apagadas | guitarra de nylon, dos voces | piano acústico con resolución | mismo soporte, hats discretos | punteado, decaimiento corto |
+| Strumstick cálido | strumstick, dos voces | piano acústico con resolución | mismo soporte, hats discretos | punteado, decaimiento corto |
 
 Versión elegida v12: piano acústico con motivo resuelto, integrado en el mood.
 Pregunta de tres notas y respuesta de dos, tercera y quinta del acorde y llegada
@@ -97,7 +97,7 @@ Detector sobre periodos crudos válidos, antes de agrupar: referencia robusta de
 historia reciente, extremos relativos, confirmación y periodo refractario. Ignorar
 arranque, paquetes corruptos y desconexiones. Un cambio de planta o de circuito
 puede ser indistinguible de un extremo: llamarlo «evento inusual», no diagnóstico.
-El mood tiene su propio gesto breve y afinado; desplaza al solista durante el gesto,
+El bell tree común desplaza al solista durante el gesto,
 no se añade encima. Caducidad corta y sin cola de saludos atrasados. Si no hay
 armonía reciente, el gesto usa el centro tonal del mood y lo declara como tal.
 

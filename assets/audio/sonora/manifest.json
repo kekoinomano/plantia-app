@@ -87,28 +87,207 @@
     "acoustic_grand_piano": [
       {
         "midi": 36,
-        "file": "acoustic_grand_piano-C2.mp3",
-        "bytes": 25585
+        "velocity": 35,
+        "file": "salamander/C2v2.mp3",
+        "bytes": 91501
+      },
+      {
+        "midi": 36,
+        "velocity": 80,
+        "file": "salamander/C2v6.mp3",
+        "bytes": 91501
+      },
+      {
+        "midi": 39,
+        "velocity": 35,
+        "file": "salamander/Ds2v2.mp3",
+        "bytes": 91501
+      },
+      {
+        "midi": 39,
+        "velocity": 80,
+        "file": "salamander/Ds2v6.mp3",
+        "bytes": 91501
+      },
+      {
+        "midi": 42,
+        "velocity": 35,
+        "file": "salamander/Fs2v2.mp3",
+        "bytes": 91501
+      },
+      {
+        "midi": 42,
+        "velocity": 80,
+        "file": "salamander/Fs2v6.mp3",
+        "bytes": 91501
+      },
+      {
+        "midi": 45,
+        "velocity": 35,
+        "file": "salamander/A2v2.mp3",
+        "bytes": 91501
+      },
+      {
+        "midi": 45,
+        "velocity": 80,
+        "file": "salamander/A2v6.mp3",
+        "bytes": 91501
       },
       {
         "midi": 48,
-        "file": "acoustic_grand_piano-C3.mp3",
-        "bytes": 25585
+        "velocity": 35,
+        "file": "salamander/C3v2.mp3",
+        "bytes": 91501
+      },
+      {
+        "midi": 48,
+        "velocity": 80,
+        "file": "salamander/C3v6.mp3",
+        "bytes": 91501
+      },
+      {
+        "midi": 51,
+        "velocity": 35,
+        "file": "salamander/Ds3v2.mp3",
+        "bytes": 91501
+      },
+      {
+        "midi": 51,
+        "velocity": 80,
+        "file": "salamander/Ds3v6.mp3",
+        "bytes": 91501
+      },
+      {
+        "midi": 54,
+        "velocity": 35,
+        "file": "salamander/Fs3v2.mp3",
+        "bytes": 91501
+      },
+      {
+        "midi": 54,
+        "velocity": 80,
+        "file": "salamander/Fs3v6.mp3",
+        "bytes": 91501
+      },
+      {
+        "midi": 57,
+        "velocity": 35,
+        "file": "salamander/A3v2.mp3",
+        "bytes": 91501
+      },
+      {
+        "midi": 57,
+        "velocity": 80,
+        "file": "salamander/A3v6.mp3",
+        "bytes": 91501
       },
       {
         "midi": 60,
-        "file": "acoustic_grand_piano-C4.mp3",
-        "bytes": 25585
+        "velocity": 35,
+        "file": "salamander/C4v2.mp3",
+        "bytes": 91501
+      },
+      {
+        "midi": 60,
+        "velocity": 80,
+        "file": "salamander/C4v6.mp3",
+        "bytes": 91501
+      },
+      {
+        "midi": 63,
+        "velocity": 35,
+        "file": "salamander/Ds4v2.mp3",
+        "bytes": 91501
+      },
+      {
+        "midi": 63,
+        "velocity": 80,
+        "file": "salamander/Ds4v6.mp3",
+        "bytes": 91501
+      },
+      {
+        "midi": 66,
+        "velocity": 35,
+        "file": "salamander/Fs4v2.mp3",
+        "bytes": 91501
+      },
+      {
+        "midi": 66,
+        "velocity": 80,
+        "file": "salamander/Fs4v6.mp3",
+        "bytes": 91501
+      },
+      {
+        "midi": 69,
+        "velocity": 35,
+        "file": "salamander/A4v2.mp3",
+        "bytes": 91501
+      },
+      {
+        "midi": 69,
+        "velocity": 80,
+        "file": "salamander/A4v6.mp3",
+        "bytes": 91501
       },
       {
         "midi": 72,
-        "file": "acoustic_grand_piano-C5.mp3",
-        "bytes": 25585
+        "velocity": 35,
+        "file": "salamander/C5v2.mp3",
+        "bytes": 91501
+      },
+      {
+        "midi": 72,
+        "velocity": 80,
+        "file": "salamander/C5v6.mp3",
+        "bytes": 91501
+      },
+      {
+        "midi": 75,
+        "velocity": 35,
+        "file": "salamander/Ds5v2.mp3",
+        "bytes": 91501
+      },
+      {
+        "midi": 75,
+        "velocity": 80,
+        "file": "salamander/Ds5v6.mp3",
+        "bytes": 91501
+      },
+      {
+        "midi": 78,
+        "velocity": 35,
+        "file": "salamander/Fs5v2.mp3",
+        "bytes": 91501
+      },
+      {
+        "midi": 78,
+        "velocity": 80,
+        "file": "salamander/Fs5v6.mp3",
+        "bytes": 91501
+      },
+      {
+        "midi": 81,
+        "velocity": 35,
+        "file": "salamander/A5v2.mp3",
+        "bytes": 91500
+      },
+      {
+        "midi": 81,
+        "velocity": 80,
+        "file": "salamander/A5v6.mp3",
+        "bytes": 91500
       },
       {
         "midi": 84,
-        "file": "acoustic_grand_piano-C6.mp3",
-        "bytes": 19371
+        "velocity": 35,
+        "file": "salamander/C6v2.mp3",
+        "bytes": 91500
+      },
+      {
+        "midi": 84,
+        "velocity": 80,
+        "file": "salamander/C6v6.mp3",
+        "bytes": 91500
       }
     ],
     "oboe": [
@@ -639,5 +818,13 @@
     "repository": "paulrosen/midi-js-soundfonts",
     "revision": "cbd6b6f6d1af89ebfb69402860741288f08ff8b7",
     "license": "CC-BY-3.0"
+  },
+  "pianoSource": {
+    "name": "Salamander Grand Piano V3",
+    "author": "Alexander Holm",
+    "license": "CC-BY-3.0",
+    "url": "https://archive.org/details/SalamanderGrandPianoV3",
+    "package": "@audio-samples/piano-mp3-velocity2 and velocity6 1.0.5",
+    "processing": "Trimmed to 4.5 seconds with 0.25 second fade; stereo 32 kHz MP3 160 kbps."
   }
 }

@@ -1,5 +1,5 @@
 import type { PlantPacket } from '../plant-packet';
-import { preset, SCALES, type Configuration, type Patch } from '../sonora/presets';
+import { copyPatch, preset, SCALES, type Configuration, type Patch } from '../sonora/presets';
 import type { Event } from '../sonora/music-types';
 import { GreetingDetector, type RawGreeting } from './greeting';
 import { WaveAnalyzer } from './analyzer';
@@ -42,9 +42,11 @@ export class WaveComposer {
   }
 
   /** Keep the plant-selected tonal centre, but remap the mood degree into the edited scale. */
-  private midi(midi: number) {
+  private midi(midi: number, chromatic = false) {
     const selected = SCALES[this.config.scale];
     const original = this.mood.profile.notes;
+    if (chromatic && selected?.length === original.length && selected.every((note, index) => note === original[index]))
+      return midi;
     const tonic = typeof this.bar?.summary.tonic === 'number' ? this.bar.summary.tonic : (this.mood.profile.tonic ?? 0);
     if (!selected?.length || !original.length) return midi;
     const relative = (midi - tonic + 120) % 12;
@@ -55,7 +57,9 @@ export class WaveComposer {
     });
     const mapped = selected[Math.round(degree * (selected.length - 1) / Math.max(1, original.length - 1))];
     const targetClass = (tonic + mapped) % 12;
-    let result = midi + ((targetClass - midi + 18) % 12 - 6);
+    // Compare pitch classes before wrapping. Using the full MIDI number here
+    // makes JavaScript's negative remainder drop some notes by an octave.
+    let result = midi + ((targetClass - (midi % 12) + 18) % 12 - 6);
     if (result - midi === -6) result += 12;
     return result;
   }
@@ -87,25 +91,20 @@ export class WaveComposer {
   }
 
   private greet(event: RawGreeting, now: number) {
-    const phrase = this.rules.greet?.(event);
-    if (!phrase) return;
-    const releaseAt = now + LOOKAHEAD + .02;
-    const start = releaseAt + .16;
+    const releaseAt = now + LOOKAHEAD;
+    const start = releaseAt + .08;
     for (const slot of ['contour', 'detail']) this.events.push({ type: 'release', time: releaseAt, slot });
-    this.greetingUntil = start + phrase.holdSeconds;
+    this.greetingUntil = start + 1.1;
     this.lastGreeting = event; this.greetingCount++; this.revision++;
-    for (const item of phrase.notes) {
-      const slot = this.config.slots?.find(s => s.id === item.slot);
-      if (!slot || slot.level <= 0) continue;
-      const patch = this.patch(item.preset, item.slot);
-      patch.envelope = { on: true, attack: item.attack, release: item.release };
-      const time = start + item.after;
-      this.events.push({ type: 'note', time, note: {
-        id: this.serial++, time, sourceTime: event.time, source: event.sequence, midi: this.midi(item.midi),
-        velocity: item.velocity, duration: item.duration, lane: slot.kind, slot: slot.id, patch,
-        pan: item.pan, color: item.color, reason: item.rule, rawGreeting: event,
-      } });
-    }
+    const tempo = this.bar?.bpm ?? this.mood.ensemble.tempo[0];
+    const stroke = Math.max(0, Math.min(4, Math.round((tempo - 48) / 18)));
+    this.events.push({ type: 'note', time: start, note: {
+      id: this.serial++, time: start, sourceTime: event.time, source: event.sequence,
+      midi: 60 + stroke, velocity: 72 + event.strength * 10, duration: 4.5,
+      lane: 'greeting', slot: '$greeting', patch: copyPatch('bell-tree'),
+      pan: 0, color: .15, reason: `Saludo común: bell tree, toma ${stroke + 1} según ${Math.round(tempo)} BPM`,
+      rawGreeting: event,
+    } });
   }
 
   configure(config: Configuration, time: number) { this.config = config; this.clock = Math.max(this.clock, time); }
@@ -182,7 +181,7 @@ export class WaveComposer {
     const at = Math.max(this.clock, time) + (note.offset ?? 0);
     this.events.push({ type: 'note', time: at, note: {
       id: this.serial++, time: at, sourceTime: frame.arrival, source: frame.sequence,
-      signalTime: window.end, midi: this.midi(note.midi), velocity: clamp(note.velocity, 1, 110),
+      signalTime: window.end, midi: this.midi(note.midi, note.chromatic), velocity: clamp(note.velocity, 1, 110),
       duration: Math.max(0.04, note.beats * beat), lane: slot.kind, slot: note.slot,
       patch, pan: note.pan, color: note.color, reason: note.rule,
       wave: { analysis: frame.id, windowSeconds: window.fit.seconds, start: window.start, end: window.end,

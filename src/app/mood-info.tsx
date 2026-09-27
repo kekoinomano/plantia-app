@@ -23,7 +23,9 @@ export default function MoodInfoScreen() {
     { title: "Voz principal", value: names(mood.profile.lead) },
     { title: "Acompañamiento principal", value: names(mood.profile.body) },
     { title: "Campo armónico", value: `${state.config.scale} · La4 a ${state.config.tuning} Hz. El centro tonal lo decide la señal; la escala elegida define sus grados disponibles.` },
-    { title: "Apariciones posibles", value: `${names(mood.profile.detail)}${mood.ensemble.texture.length ? ` · ${names(mood.ensemble.texture)}` : ""}${mood.ensemble.counter.length ? ` · ${names(mood.ensemble.counter)}` : ""}. Entran solo cuando la forma musical deja espacio.` },
+    { title: "Apariciones posibles", value: `${names(mood.profile.detail)}${mood.ensemble.texture.length ? ` · ${names(mood.ensemble.texture)}` : ""}. Entran solo cuando la forma musical deja espacio.` },
+    { title: "Saludo", value: "Un pico excepcional activa un golpe de bell tree. La toma varía suavemente con el tempo actual en todos los moods." },
+    ...(mood.profile.id === "ghibli" ? [{ title: "Piano grabado", value: "Salamander Grand Piano V3, grabaciones de Alexander Holm · licencia CC BY 3.0." }] : []),
   ];
   return <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
     <ScreenHeader title="Cómo escucha" />

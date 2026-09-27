@@ -8,7 +8,7 @@ import {
   type Patch,
 } from './presets.ts';
 import type { Event, Note, Lane, Soundscape, Expression } from './music-types.ts';
-export type Sample = { midi: number; rate: number; data: Float32Array };
+export type Sample = { midi: number; rate: number; data: Float32Array; right?: Float32Array; velocity?: number };
 export type Bank = Record<string, Sample[]>;
 export type PCM = {
   channels: [Float32Array, Float32Array];
@@ -32,15 +32,21 @@ const smooth = (x: number) => {
   const v = clamp(x);
   return v * v * (3 - 2 * v);
 };
-// Linear at normal levels; a soft knee protects only dense peaks. No silence pumping.
+// Keep normal dynamics linear; contain only peaks at the final PCM ceiling.
 const outputSample = (x: number) => {
   const magnitude = Math.abs(x);
-  return Math.sign(x) * (magnitude <= 0.72 ? magnitude : 0.72 + 0.23 * Math.tanh((magnitude - 0.72) / 0.23));
+  return Math.sign(x) * (magnitude <= 0.65 ? magnitude : 0.65 + 0.22 * Math.tanh((magnitude - 0.65) / 0.22));
 };
-// Preserve the original synth/limiter character, then raise only the final
-// output level. This avoids driving the soft knee as the previous gain of 11 did.
-const CHARACTER_GAIN = 3.6;
-const OUTPUT_GAIN = 2.5;
+const sampleAt = (data: Float32Array, position: number) => {
+  const i = Math.floor(position), t = position - i;
+  if (i + 1 >= data.length) return 0;
+  if (i < 1 || i + 2 >= data.length) return data[i] + (data[i + 1] - data[i]) * t;
+  const a = data[i - 1], b = data[i], c = data[i + 1], d = data[i + 2];
+  return b + 0.5 * t * (c - a + t * (2 * a - 5 * b + 4 * c - d + t * (3 * (b - c) + d - a)));
+};
+// The former post-limiter gain of 2.5 reintroduced hard clipping at ~0.39.
+// Put all gain before the soft ceiling; low-level notes retain the same gain.
+const MASTER_GAIN = 9;
 class Effects {
   private dl: Float32Array;
   private dr: Float32Array;
@@ -156,8 +162,10 @@ type Voice = {
 /** Shared note preparation: native PCM and the reference DSP use the same presets. */
 export function prepareVoice(rate: number, bank: Bank, n: Note): Voice | undefined {
   const sampleFor = (program: string | undefined, midi: number) =>
-    (program ? bank[program] : undefined)?.reduce((a, b) =>
-      Math.abs(a.midi - midi) <= Math.abs(b.midi - midi) ? a : b) ?? null;
+    (program ? bank[program] : undefined)?.reduce((a, b) => {
+      const distance = (s: Sample) => Math.abs(s.midi - midi) * 100 + Math.abs((s.velocity ?? n.velocity) - n.velocity);
+      return distance(a) <= distance(b) ? a : b;
+    }) ?? null;
   if (n.velocity <= 0) return;
   const desc = preset(n.patch.preset),
     isGreeting = n.lane === 'greeting';
@@ -383,21 +391,15 @@ export class AudioCore {
           (age < v.attack ? smooth(age / v.attack) : 1) *
           (time < v.stop ? 1 : 1 - smooth((time - v.stop) / v.release)) *
           (v.forced === Infinity ? 1 : clamp((v.forced - time) / 0.025));
-        let value = 0;
+        let value = 0, rightValue = 0;
         if (v.sample) {
-          const p = Math.floor(v.position),
-            a = v.sample.data;
-          if (p < a.length - 1)
-            value = a[p] + (a[p + 1] - a[p]) * (v.position - p);
+          value = sampleAt(v.sample.data, v.position);
+          rightValue = v.sample.right ? sampleAt(v.sample.right, v.position) : value;
           v.position += v.increment * (v.model === 'tape' ? 1 + 0.0018 * sin(age * 0.27) + 0.0006 * sin(age * 4.3) : 1);
           if (v.sample2) {
-            const q = Math.floor(v.position2),
-              b = v.sample2.data;
-            const other =
-              q < b.length - 1
-                ? b[q] + (b[q + 1] - b[q]) * (v.position2 - q)
-                : 0;
+            const other = sampleAt(v.sample2.data, v.position2);
             value = value * 0.6 + other * 0.4;
+            rightValue = rightValue * 0.6 + other * 0.4;
             v.position2 += v.increment2;
           }
         } else if (v.model === 'rhodes') {
@@ -405,7 +407,12 @@ export class AudioCore {
           value = (sin(phase + 0.12 * sin(phase * 2) * Math.exp(-age * 1.8)) * 0.8 +
             sin(phase * 3) * 0.12 * Math.exp(-age * 4)) * Math.exp(-age * (0.6 + v.note.color * 0.3));
         } else if (v.model === 'bass') {
-          value = (sin(age * v.frequency) * 0.85 + sin(age * v.frequency * 2) * 0.12) * Math.exp(-age * 0.7);
+          // Upper harmonics carry the bass pitch on small speakers; keep the
+          // fundamental for headphones and let the harmonics decay sooner.
+          value = sin(age * v.frequency) * 0.75 * Math.exp(-age * 0.65)
+            + sin(age * v.frequency * 2) * 0.4 * Math.exp(-age * 1.1)
+            + sin(age * v.frequency * 3) * 0.2 * Math.exp(-age * 1.7)
+            + sin(age * v.frequency * 4) * 0.08 * Math.exp(-age * 2.4);
         } else if (v.model === 'kick') {
           // Integrated exponential pitch drop, avoiding a phase discontinuity.
           value = sin(48 * age + 2.7 * (1 - Math.exp(-age * 30))) * Math.exp(-age * 14);
@@ -493,15 +500,16 @@ export class AudioCore {
           value = Math.tanh(v.filterState * 1.35) / 1.35;
         }
         value *= envelope * v.gain;
+        rightValue *= envelope * v.gain;
         if (v.note.lane === 'synth') {
           const drift =
             this.expression.direction * 0.13 +
             sin(age * 0.08 + v.note.pan) * 0.05;
           leftBus[v.channel] += value * v.panL * (1 - drift);
-          rightBus[v.channel] += value * v.panR * (1 + drift);
+          rightBus[v.channel] += (v.sample ? rightValue : value) * v.panR * (1 + drift);
         } else {
           leftBus[v.channel] += value * v.panL;
-          rightBus[v.channel] += value * v.panR;
+          rightBus[v.channel] += (v.sample ? rightValue : value) * v.panR;
         }
       }
       const duckTarget = time - this.greetingAt < 0.65 && this.config.greetingLevel > 0 ? 0.85 : 1;
@@ -528,8 +536,8 @@ export class AudioCore {
       }
       this.dcL += (left - this.dcL) * dc;
       this.dcR += (right - this.dcR) * dc;
-      l[i] = clamp(outputSample((left - this.dcL) * CHARACTER_GAIN) * OUTPUT_GAIN, -0.98, 0.98);
-      r[i] = clamp(outputSample((right - this.dcR) * CHARACTER_GAIN) * OUTPUT_GAIN, -0.98, 0.98);
+      l[i] = outputSample((left - this.dcL) * MASTER_GAIN);
+      r[i] = outputSample((right - this.dcR) * MASTER_GAIN);
       if (this.cursor % 128 === 0)
         this.voices = this.voices.filter(
           (v) => time < Math.min(v.stop + v.release, v.forced),

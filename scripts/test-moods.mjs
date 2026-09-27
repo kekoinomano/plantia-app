@@ -8,7 +8,7 @@ import { DEFAULT_LIMITS, MOOD_LIMITS, analyse, compare } from './lib/mood-metric
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 process.chdir(root);
-const help = `Uso: npm run moods:test -- [--sample suegra2.json] [--mood lofi-waves]
+const help = `Uso: npm run moods:test -- [--suegra2 | --sample suegra2.json] [--mood lofi-waves]
   --sample, --datasample  Nombre en datasamples/ o ruta a un JSON.
   --mood                 ID del mood; también acepta lofi.
   --out                  Carpeta padre de resultados (por defecto output/mood-tests).
@@ -35,7 +35,7 @@ function limitsFor(id, custom) {
   for (const [key, value] of Object.entries(limits)) {
     if (!(key in DEFAULT_LIMITS) || !Number.isFinite(value) || value < 0) throw Error(`Umbral inválido: ${key}`);
   }
-  if (!Number.isInteger(limits.blockBars) || limits.blockBars < 1 || !Number.isInteger(limits.minimumBlocks)
+  if (!Number.isInteger(limits.blockBars) || limits.blockBars < 1 || !Number.isInteger(limits.cycleBlocks) || limits.cycleBlocks < 1 || !Number.isInteger(limits.minimumBlocks)
     || limits.minimumBlocks < 3 || limits.internalMin > limits.internalMax || limits.internalMax > 1
     || limits.crossMin > 1 || limits.crossRatio < 1) throw Error('Umbrales incompatibles.');
   return limits;
@@ -46,11 +46,16 @@ const hash = value => createHash('sha256').update(value).digest('hex');
 
 async function main() {
   if (args.includes('--help') || args.includes('-h')) { console.log(help); return; }
-  for (let i = 0; i < args.length; i += 2) {
+  for (let i = 0; i < args.length;) {
+    if (args[i].startsWith('--') && !['--sample', '--datasample', '--mood', '--out', '--thresholds'].includes(args[i])) {
+      if (options['--sample']) throw Error(`Más de un datasample: ${args[i]}`);
+      options['--sample'] = args[i].slice(2); i++; continue;
+    }
     const key = args[i] === '--datasample' ? '--sample' : args[i];
     if (!['--sample', '--mood', '--out', '--thresholds'].includes(key)
       || !args[i + 1] || args[i + 1].startsWith('--') || options[key]) throw Error(`Argumento inválido: ${args[i]}\n${help}`);
     options[key] = args[i + 1];
+    i += 2;
   }
   const engine = await loadEngine();
   const id = options['--mood'] === 'lofi' ? 'lofi-waves' : options['--mood'];
@@ -59,7 +64,10 @@ async function main() {
   let files;
   if (options['--sample']) {
     let file = resolve(options['--sample']);
-    try { await access(file); } catch { file = resolve('datasamples', options['--sample']); }
+    try { await access(file); } catch {
+      file = resolve('datasamples', options['--sample']);
+      try { await access(file); } catch { file = `${file}.json`; }
+    }
     files = [file];
   } else files = (await readdir('datasamples', { withFileTypes: true }))
     .filter(f => f.isFile() && f.name.endsWith('.json')).map(f => resolve('datasamples', f.name)).sort();
@@ -73,7 +81,7 @@ async function main() {
   const output = await mkdtemp(join(parent, `${new Date().toISOString().replace(/[:.]/g, '-')}-`));
   const report = { version: 1, createdAt: new Date().toISOString(), thresholds, runs: [], pairs: [],
     comparison: options['--sample'] ? 'No solicitada: datasample explícito.' : 'Todos los pares por mood.',
-    renderer: 'Sonora JS offline, 22050 Hz, MP3 160 kbps', ffmpeg: ffmpeg.stdout.split('\n')[0] };
+    renderer: 'Sonora C++ + sfizz SFZ/FLAC offline, 48000 Hz, MP3 256 kbps', ffmpeg: ffmpeg.stdout.split('\n')[0] };
   const statuses = [];
   for (const mood of moods) {
     const moodId = mood.profile.id;
@@ -94,6 +102,12 @@ async function main() {
           [n.time, n.duration, n.midi, n.velocity].every(Number.isFinite)
           && n.time >= 0 && n.duration > 0 && n.midi >= 0 && n.midi <= 127);
         run.checks.push({ name: 'Notas emitidas válidas', status: valid ? 'PASS' : 'FAIL' });
+        const musicalNotes = score.notes.filter(n => !n.rawGreeting);
+        const traced = musicalNotes.every(n => n.wave && n.wave.rule && n.wave.analysis > 0
+          && Array.isArray(n.wave.components) && n.wave.components.every(w =>
+            Number.isFinite(w.frequency) && Number.isFinite(w.weight) && w.weight >= 0));
+        run.checks.push({ name: 'Procedencia musical de las ondas', status: traced ? 'PASS' : 'FAIL',
+          detail: `${musicalNotes.length} notas musicales con análisis, regla y componentes` });
         // Always retain the decision trace, including when audio rendering fails.
         await writeFile(join(output, run.artifact), json({ ...run, config: score.config,
           frames: score.frames, bars: score.bars, events: score.events }));
@@ -102,6 +116,9 @@ async function main() {
           run.mp3 = `${name}.mp3`;
           run.checks.push({ name: 'Audio finito y no vacío', status:
             run.audio.invalid === 0 && Number.isFinite(run.audio.rms) && run.audio.rms > .00001 ? 'PASS' : 'FAIL' });
+          run.checks.push({ name: 'Techo PCM sin saturación sostenida', status:
+            run.audio.nearCeilingFraction < .001 ? 'PASS' : 'FAIL',
+            value: run.audio.nearCeilingFraction, required: '< 0.1 % de muestras a más de 0.85' });
         }
       } catch (error) {
         run.error = error.message;
