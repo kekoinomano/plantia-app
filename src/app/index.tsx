@@ -1,9 +1,9 @@
 import { useRouter, type Href } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { Animated, Easing, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Animated, Easing, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Icon } from "@/components/plant-icon";
-import { LivingPattern, WaveMark } from "@/components/muromura-visuals";
+import { LivingPattern, WaveMark } from "@/components/saviasound-visuals";
 import { LiveSignalChart } from "@/components/signal-chart";
 import { colors, moodPalette } from "@/components/plantia-theme";
 import { plantSession, usePlantControls, type PlantIndicators } from "@/lib/plant-session";
@@ -52,10 +52,7 @@ export default function HomeScreen() {
     <LivingPattern color={palette.accent} />
     <ScrollView style={styles.scroll} contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
       <View style={styles.header}>
-        <View style={styles.brand}>
-          <WaveMark color={colors.ink} width={39} />
-          <Text style={styles.wordmark}>MUROMURA</Text>
-        </View>
+        <Image source={require("../../assets/images/saviasound-logo.png")} style={styles.brand} resizeMode="contain" accessibilityLabel="saviasound" />
         <Pressable accessibilityRole="button" accessibilityLabel={`Bluetooth. ${status}`}
           onPress={() => router.push("/bluetooth" as Href)} style={styles.bluetooth}>
           <View style={[styles.statusDot, { backgroundColor: connected ? palette.accent : colors.muted }]} />
@@ -134,8 +131,7 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   page: { flexGrow: 1, paddingHorizontal: 22, paddingTop: 8, paddingBottom: 10 },
   header: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14 },
-  brand: { flexDirection: "row", alignItems: "center", gap: 9 },
-  wordmark: { color: colors.ink, fontSize: 11, letterSpacing: 3.2, fontWeight: "500" },
+  brand: { width: 142, height: 25 },
   bluetooth: { maxWidth: 178, minHeight: 42, paddingHorizontal: 13, borderRadius: 22, flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "rgba(248,245,238,.74)", borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(31,40,24,.18)" },
   statusDot: { width: 6, height: 6, borderRadius: 3 },
   bluetoothText: { color: colors.ink, fontSize: 11, flexShrink: 1 },

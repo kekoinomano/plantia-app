@@ -1,4 +1,4 @@
-# Plantia · Sonora nativa
+# saviasound · Sonora nativa
 
 App Expo SDK 57 para escuchar una planta por Bluetooth en iOS y Android. Una pantalla, sin identificación, cuentas ni grabaciones.
 
@@ -13,7 +13,7 @@ npm run android -- --device
 
 Después de instalar la compilación de desarrollo, `npm start` inicia Metro para usarla. **No funciona con Expo Go**: Bluetooth y el renderizador de audio requieren los módulos nativos incluidos en esta compilación. iOS requiere Xcode y la firma habitual de tu equipo; Android requiere Android Studio/SDK. Los identificadores iniciales son `com.plantia.app`.
 
-Para volver a abrir Plantia en el simulador sin compilar: `npm run ios:open`. Los pods son las dependencias nativas de iOS; su primera instalación y compilación puede tardar varios minutos. Solo necesitas `npm run ios` otra vez si cambias dependencias o configuración nativa. El simulador permite revisar la interfaz y el audio, pero para conectar el sensor Bluetooth necesitas un iPhone físico.
+Para volver a abrir saviasound en el simulador sin compilar: `npm run ios:open`. Los pods son las dependencias nativas de iOS; su primera instalación y compilación puede tardar varios minutos. Solo necesitas `npm run ios` otra vez si cambias dependencias o configuración nativa. El simulador permite revisar la interfaz y el audio, pero para conectar el sensor Bluetooth necesitas un iPhone físico.
 
 Enciende el sensor y desconéctalo de la web si estaba conectado allí. Pulsa **Conectar planta** y permite Bluetooth. Se conecta al primer sensor cercano que anuncia el servicio de Plantia. Elige uno de los cinco moods y ajusta el volumen. La explicación del mood y el laboratorio muestran las ondas y sus decisiones musicales. El botón de pausa mantiene la conexión; tocar **Planta conectada** la cierra.
 

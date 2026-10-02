@@ -173,12 +173,12 @@ export class PlantConnection {
     if (this.closed) throw new Error("Conexión cancelada.");
     const services = await connected.services();
     if (!services.some((service) => service.uuid.toLowerCase() === PLANT_SERVICE)) {
-      throw new Error("El sensor no ofrece el servicio de Plantia v2. Actualiza el firmware y vuelve a conectar.");
+      throw new Error("El sensor no ofrece el servicio compatible con saviasound. Actualiza el firmware y vuelve a conectar.");
     }
     const characteristics = await connected.characteristicsForService(PLANT_SERVICE);
     if (!characteristics.some((characteristic) =>
       characteristic.uuid.toLowerCase() === PLANT_CHARACTERISTIC && characteristic.isNotifiable)) {
-      throw new Error("El sensor no ofrece el canal de datos de Plantia v2. Actualiza el firmware y vuelve a conectar.");
+      throw new Error("El sensor no ofrece el canal de datos compatible con saviasound. Actualiza el firmware y vuelve a conectar.");
     }
     if (this.closed) throw new Error("Conexión cancelada.");
     let seq = 0;

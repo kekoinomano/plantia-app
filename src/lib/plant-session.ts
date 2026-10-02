@@ -261,11 +261,11 @@ class PlantSession {
   connect = async (rememberedId?: string) => {
     if (this.snapshot.connection !== "idle") return;
     if (Platform.OS === "web") {
-      this.error(new Error("Abre la app de Plantia en iOS o Android para conectar el sensor."));
+      this.error(new Error("Abre la app de saviasound en iOS o Android para conectar el sensor."));
       return;
     }
     if (isRunningInExpoGo()) {
-      this.error(new Error("Estás en Expo Go, que no incluye el audio ni Bluetooth de Plantia. Abre la app Plantia instalada; puedes hacerlo con npm run ios:open."));
+      this.error(new Error("Estás en Expo Go, que no incluye el audio ni Bluetooth de saviasound. Abre la app saviasound instalada; puedes hacerlo con npm run ios:open."));
       return;
     }
     if (!rememberedId) this.deviceNames = new Map(this.snapshot.rememberedDevices.map(device => [device.id, device.name]));

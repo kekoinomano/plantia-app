@@ -14,12 +14,12 @@ module.exports = (config) => {
 ${marker}
 android {
     defaultConfig {
-        manifestPlaceholders.plantiaAppLabel = "Plantia"
+        manifestPlaceholders.plantiaAppLabel = "saviasound"
     }
     buildTypes {
         debug {
             applicationIdSuffix ".dev"
-            manifestPlaceholders.plantiaAppLabel = "Plantia Dev"
+            manifestPlaceholders.plantiaAppLabel = "saviasound Dev"
         }
     }
 }

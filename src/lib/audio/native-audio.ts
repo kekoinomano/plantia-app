@@ -63,7 +63,7 @@ export class NativeAudio {
     if (this.closed) return;
     await PlaybackNotificationManager.show({
       title: "La música de tu planta",
-      artist: "Plantia · Sonora",
+      artist: "saviasound",
       state: "playing",
     });
     await PlaybackNotificationManager.enableControl("play", true);

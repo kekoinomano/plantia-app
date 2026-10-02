@@ -62,7 +62,7 @@ export default function BluetoothScreen() {
 
       {(state.connection === "scanning" || state.devices.length > 0) && <View style={styles.section}>
         <View style={styles.sectionHeading}><Text style={styles.sectionTitle}>Cerca de ti</Text><ActivityIndicator color={colors.green} /></View>
-        {!state.devices.length && <Text style={styles.searching}>Buscando sensores Muromura…</Text>}
+        {!state.devices.length && <Text style={styles.searching}>Buscando sensores saviasound…</Text>}
         {state.devices.map(device => <Pressable key={device.id} accessibilityRole="button"
           onPress={() => plantSession.selectDevice(device.id)} style={styles.deviceRow}>
           <View style={styles.deviceIcon}><Icon name="bluetooth" size={20} color={colors.paper} /></View>

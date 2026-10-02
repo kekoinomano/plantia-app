@@ -1,19 +1,19 @@
 {
   "expo": {
-    "name": "Plantia",
-    "slug": "plantia-app",
+    "name": "saviasound",
+    "slug": "saviasound",
     "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "plantiaapp",
+    "scheme": "saviasound",
     "userInterfaceStyle": "light",
     "ios": {
-      "icon": "./assets/expo.icon",
+      "icon": "./assets/images/icon.png",
       "bundleIdentifier": "com.plantia.app"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#F1ECE3",
+        "backgroundColor": "#25382A",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -34,7 +34,7 @@
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
+          "imageWidth": 300,
           "resizeMode": "contain",
           "backgroundColor": "#F1ECE3"
         }
@@ -45,7 +45,7 @@
           "isBackgroundEnabled": true,
           "neverForLocation": true,
           "modes": ["central"],
-          "bluetoothAlwaysPermission": "Plantia utiliza Bluetooth para escuchar la señal de tu planta, también con la pantalla apagada."
+          "bluetoothAlwaysPermission": "saviasound utiliza Bluetooth para escuchar la señal de tu planta, también con la pantalla apagada."
         }
       ],
       "./plugins/with-background-playback",
