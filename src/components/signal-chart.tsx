@@ -8,7 +8,7 @@ import { plantSession, usePlantSessionValue, type SignalPoint } from '@/lib/plan
 import { INITIAL_SIGNAL_TIMING, SIGNAL_WINDOW_MS, type SignalTiming } from '@/lib/signal-chart';
 import { curveAt, curveExtrema, prepareSignalCurve, rasterSignalPath, rasterCursor, type SignalCurve } from '@/lib/signal-curve';
 import { getWaveInspection, subscribeWaveInspection } from '@/lib/wave-music/inspection';
-import { colors } from './plantia-theme';
+import { colors } from './saviasound-theme';
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 const WIDTH = 320, HEIGHT = 170;
 const PLOT_LEFT = 4, PLOT_RIGHT = WIDTH - 6, PLOT_WIDTH = PLOT_RIGHT - PLOT_LEFT;

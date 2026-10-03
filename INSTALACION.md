@@ -24,6 +24,6 @@ npx pod-install
 npm run ios -- --device
 ```
 
-Después de instalar la app, `npm start` inicia Metro. Usa la compilación instalada; Expo Go no incluye el audio ni Bluetooth de Plantia.
+Después de instalar la app, `npm start` inicia Metro. Usa la compilación instalada; Expo Go no incluye el audio ni Bluetooth de saviasound.
 
 Los archivos `assets/audio/sfz/*.sfzpack` son instrumentos que usa la app: deben venir en el repositorio. Si faltan tras clonar, el repositorio aún no incluye todos los assets necesarios para compilar.

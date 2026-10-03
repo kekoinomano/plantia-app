@@ -3,7 +3,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-nati
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ScreenHeader } from "@/components/screen-header";
 import { Icon } from "@/components/plant-icon";
-import { colors, moodPalette } from "@/components/plantia-theme";
+import { colors, moodPalette } from "@/components/saviasound-theme";
 import { plantSession, usePlantControls } from "@/lib/plant-session";
 import { profile } from "@/lib/sonora/focus";
 import { SCALES, TUNINGS } from "@/lib/sonora/presets";

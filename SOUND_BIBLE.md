@@ -1,4 +1,4 @@
-# Lenguaje musical de Plantia
+# Lenguaje musical de saviasound
 
 El diseño vigente, fuentes y reglas de los cinco moods está en
 [docs/music/WAVE_MOODS.md](docs/music/WAVE_MOODS.md).

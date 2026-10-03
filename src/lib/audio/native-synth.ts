@@ -107,7 +107,7 @@ export class NativeSynth {
         queueMs: Math.round(this.remaining() * 1000) }));
     if (notes.length) {
       if (logNotes) this.lastNoteLog = performance.now();
-      console.info("[Plantia Music]", JSON.stringify({ event: "NOTES", notes }));
+      console.info("[saviasound Music]", JSON.stringify({ event: "NOTES", notes }));
     }
     this.active = true;
     this.quietSeconds = 0;
@@ -336,8 +336,8 @@ export class NativeSynth {
       ...this.core.status, underruns: this.underruns,
       packetAgeMs: this.lastPacket ? Math.round((this.context.currentTime - this.lastPacket) * 1000) : null,
       ...extra };
-    if (event === "ERROR" || event === "UNDERRUN") console.warn("[Plantia PCM]", JSON.stringify(data));
-    else console.info("[Plantia PCM]", JSON.stringify(data));
+    if (event === "ERROR" || event === "UNDERRUN") console.warn("[saviasound PCM]", JSON.stringify(data));
+    else console.info("[saviasound PCM]", JSON.stringify(data));
   }
 
   private configurationLog(config: Configuration) {

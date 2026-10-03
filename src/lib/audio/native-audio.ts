@@ -39,7 +39,7 @@ export class NativeAudio {
 
   start(config: Configuration) {
     this.starting = this.begin(config).catch((error) => {
-      console.error("[Plantia PCM] INIT_ERROR", error instanceof Error ? error.message : String(error));
+      console.error("[saviasound PCM] INIT_ERROR", error instanceof Error ? error.message : String(error));
       throw error;
     });
     return this.starting;
@@ -182,7 +182,7 @@ export class NativeAudio {
         if (this.waves.revisionId !== this.lastDecisionRevision && now - this.lastDecisionTime >= 0.75) {
           const decision = this.waves.diagnostics;
           this.lastDecisionRevision = decision.revision; this.lastDecisionTime = now;
-          console.info('[Plantia Music]', JSON.stringify({ event: 'LISTEN', ...decision }));
+          console.info('[saviasound Music]', JSON.stringify({ event: 'LISTEN', ...decision }));
         }
       } catch (error) {
         void this.setPlaying(false).catch(this.onError);

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Icon } from "./plant-icon";
-import { colors } from "./plantia-theme";
+import { colors } from "./saviasound-theme";
 
 export function ScreenHeader({ title, action }: { title: string; action?: ReactNode }) {
   const router = useRouter();

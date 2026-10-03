@@ -162,10 +162,10 @@ export class PlantConnection {
       await connected.cancelConnection();
       throw new Error("Conexión cancelada.");
     }
-    console.info("[Plantia BLE] Conectado; descubriendo servicios", connected.id);
+    console.info("[saviasound BLE] Conectado; descubriendo servicios", connected.id);
     this.subscriptions.push(
       connected.onDisconnected((error) => {
-        console.info("[Plantia BLE] Desconectado", error);
+        console.info("[saviasound BLE] Desconectado", error);
         if (!this.closed) onDisconnect();
       }),
     );
@@ -183,7 +183,7 @@ export class PlantConnection {
     if (this.closed) throw new Error("Conexión cancelada.");
     let seq = 0;
     const origin = performance.now();
-    console.info("[Plantia BLE] Activando notificaciones", PLANT_CHARACTERISTIC);
+    console.info("[saviasound BLE] Activando notificaciones", PLANT_CHARACTERISTIC);
     this.subscriptions.push(
       connected.monitorCharacteristicForService(
         PLANT_SERVICE,
@@ -191,7 +191,7 @@ export class PlantConnection {
         (error, value) => {
           if (this.closed) return;
           if (error) {
-            console.warn("[Plantia BLE] Error al recibir notificaciones", error);
+            console.warn("[saviasound BLE] Error al recibir notificaciones", error);
             onDisconnect(`No se pudieron recibir los datos del sensor: ${error.reason || error.message} (BLE ${error.errorCode}).`);
             return;
           }

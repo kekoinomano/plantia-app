@@ -1,4 +1,4 @@
-# Plantia: de los datos del sensor a una representación por ondas
+# saviasound: de los datos del sensor a una representación por ondas
 
 Documento metodológico · 21 de septiembre de 2026
 

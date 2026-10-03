@@ -14,7 +14,7 @@ export class SampleBank {
       if (!await ensureSfz(program))
         throw new Error(`No se pudo preparar el instrumento SFZ: ${program}`);
       bank[program] = [];
-      console.info('[Plantia Audio]', JSON.stringify({
+      console.info('[saviasound Audio]', JSON.stringify({
         event: 'BANK_SOURCE', mood: config.profile, program, source: 'sfz-flac',
       }));
     }));

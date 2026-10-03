@@ -4,7 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { ScreenHeader } from "@/components/screen-header";
 import { Icon } from "@/components/plant-icon";
 import { WaveMark } from "@/components/saviasound-visuals";
-import { colors, moodPalette } from "@/components/plantia-theme";
+import { colors, moodPalette } from "@/components/saviasound-theme";
 import { plantSession, usePlantControls } from "@/lib/plant-session";
 import { PROFILES } from "@/lib/sonora/focus";
 

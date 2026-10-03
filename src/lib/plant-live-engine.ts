@@ -61,7 +61,7 @@ export class LiveMusicEngine {
       this.schedule(this.composer.drain());
     }, error => {
       this.finish();
-      console.error('[Plantia Waves]', error);
+      console.error('[saviasound Waves]', error);
     });
   }
   private schedule(events: Event[]) {

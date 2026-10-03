@@ -1,5 +1,5 @@
 import Svg, { Circle, Path, Line } from "react-native-svg";
-import { colors } from "./plantia-theme";
+import { colors } from "./saviasound-theme";
 
 export function Icon({
   name,

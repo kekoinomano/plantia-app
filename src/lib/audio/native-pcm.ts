@@ -38,8 +38,8 @@ export class NativePcmCore {
   constructor(private rate: number, config: Configuration, private bank: Bank) {
     const module = requireOptionalNativeModule<Module>("PlantiaPcm");
     if (!module) {
-      const message = "Falta PlantiaPcm en esta instalación. Recompila con npm run android o, en iOS, npx pod-install y npm run ios; recargar Metro no instala el módulo nativo.";
-      console.error("[Plantia PCM] NATIVE_MODULE_MISSING", message);
+      const message = "Falta el módulo de audio nativo en esta instalación. Recompila con npm run android o, en iOS, npx pod-install y npm run ios; recargar Metro no instala el módulo nativo.";
+      console.error("[saviasound PCM] NATIVE_MODULE_MISSING", message);
       throw new Error(message);
     }
     this.module = module;
@@ -93,7 +93,7 @@ export class NativePcmCore {
     if (previous?.signature === signature) return previous.id;
     const id = previous?.id ?? this.nextSfzId++;
     this.module.loadSfz(this.id, id, channel, sfz.path, sfz.gain, tuning);
-    console.info('[Plantia Audio]', JSON.stringify({ event: 'SFZ_LOADED', program, channel }));
+    console.info('[saviasound Audio]', JSON.stringify({ event: 'SFZ_LOADED', program, channel }));
     this.sfzChannels.set(address, { id, channel, program, signature });
     return id;
   }

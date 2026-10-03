@@ -82,7 +82,7 @@ export async function ensureSfz(program: string): Promise<boolean> {
   const promise = (async () => {
     // sfz-v1 contained the two large pianos and other superseded WAV libraries.
     legacyCleanup ??= FileSystem.deleteAsync(`${FileSystem.documentDirectory}sfz-v1/`,
-      { idempotent: true }).catch(error => console.warn('[Plantia SFZ] LEGACY_CLEANUP_FAILED', error));
+      { idempotent: true }).catch(error => console.warn('[saviasound SFZ] LEGACY_CLEANUP_FAILED', error));
     await legacyCleanup;
     const instrument = instruments[program];
     const root = `${FileSystem.documentDirectory}sfz-v2/`;
@@ -115,7 +115,7 @@ export async function ensureSfz(program: string): Promise<boolean> {
       gain: instrument.gain, minNote: instrument.minNote, maxNote: instrument.maxNote, fixedNote: instrument.fixedNote });
     return true;
   })().catch(error => {
-    console.error('[Plantia SFZ] INSTALL_FAILED', program, error);
+    console.error('[saviasound SFZ] INSTALL_FAILED', program, error);
     return false;
   }).finally(() => loading.delete(program));
   loading.set(program, promise);

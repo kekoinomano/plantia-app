@@ -11,11 +11,11 @@ npm run ios -- --device
 npm run android -- --device
 ```
 
-Después de instalar la compilación de desarrollo, `npm start` inicia Metro para usarla. **No funciona con Expo Go**: Bluetooth y el renderizador de audio requieren los módulos nativos incluidos en esta compilación. iOS requiere Xcode y la firma habitual de tu equipo; Android requiere Android Studio/SDK. Los identificadores iniciales son `com.plantia.app`.
+Después de instalar la compilación de desarrollo, `npm start` inicia Metro para usarla. **No funciona con Expo Go**: Bluetooth y el renderizador de audio requieren los módulos nativos incluidos en esta compilación. iOS requiere Xcode y la firma habitual de tu equipo; Android requiere Android Studio/SDK.
 
 Para volver a abrir saviasound en el simulador sin compilar: `npm run ios:open`. Los pods son las dependencias nativas de iOS; su primera instalación y compilación puede tardar varios minutos. Solo necesitas `npm run ios` otra vez si cambias dependencias o configuración nativa. El simulador permite revisar la interfaz y el audio, pero para conectar el sensor Bluetooth necesitas un iPhone físico.
 
-Enciende el sensor y desconéctalo de la web si estaba conectado allí. Pulsa **Conectar planta** y permite Bluetooth. Se conecta al primer sensor cercano que anuncia el servicio de Plantia. Elige uno de los cinco moods y ajusta el volumen. La explicación del mood y el laboratorio muestran las ondas y sus decisiones musicales. El botón de pausa mantiene la conexión; tocar **Planta conectada** la cierra.
+Enciende el sensor y desconéctalo de la web si estaba conectado allí. Pulsa **Conectar planta** y permite Bluetooth. Se conecta al primer sensor cercano que anuncia el servicio BLE compatible. Elige uno de los cinco moods y ajusta el volumen. La explicación del mood y el laboratorio muestran las ondas y sus decisiones musicales. El botón de pausa mantiene la conexión; tocar **Planta conectada** la cierra.
 
 ## Audio y segundo plano
 
@@ -24,7 +24,7 @@ Enciende el sensor y desconéctalo de la web si estaba conectado allí. Pulsa **
 - Bloques de unos 40 ms, con una reserva de 1,2–2 segundos. El primer plan espera la ventana corta de 3 segundos del eje del sensor; la ventana larga usa 8 segundos. El retraso audible incluye análisis, BLE y la cola PCM. Los lotes de notas mantienen sus intervalos.
 - Los finales dejan drenar los efectos. Un fundido programado nativamente protege el final de la cola aunque JS se bloquee. Pausa/cierre invalidan trabajos pendientes. Un vaciado produce nueva precarga y un log `UNDERRUN`.
 - **Recompilación necesaria:** `npm run android` y, en iOS, `npx pod-install && npm run ios` incorporan el módulo local `PlantiaPcm`. Recargar Metro no es suficiente. Una instalación antigua muestra `NATIVE_MODULE_MISSING`, sin recurrir al render lento en Hermes.
-- Logs `[Plantia PCM]`: `INIT`, `CONFIG`, `START`, `STATUS` cada dos segundos mientras se genera audio, `UNDERRUN`, `ERROR`, `PAUSE` y `CLOSE`. `CONFIG` muestra niveles y el estado/valores de cada efecto realmente enviados al motor; `[Plantia Music] NOTES` muestra las notas generadas y su retraso compositivo para distinguir una respuesta musical de un eco. Copia desde `INIT` hasta el fallo para diagnosticarlo.
+- Logs `[saviasound PCM]`: `INIT`, `CONFIG`, `START`, `STATUS` cada dos segundos mientras se genera audio, `UNDERRUN`, `ERROR`, `PAUSE` y `CLOSE`. `CONFIG` muestra niveles y el estado/valores de cada efecto realmente enviados al motor; `[saviasound Music] NOTES` muestra las notas generadas y su retraso compositivo para distinguir una respuesta musical de un eco. Copia desde `INIT` hasta el fallo para diagnosticarlo.
 - Las muestras del banco se incluyen en la app. Se decodifican, recortan y normalizan; se cargan los programas que necesita la paleta del mood seleccionado. No requiere red en una compilación instalada con sus assets.
 - iOS declara `audio` y `bluetooth-central`, con sesión de reproducción. Android declara el servicio en primer plano `mediaPlayback|connectedDevice` y su notificación. Incluye controles del sistema, interrupciones y pausa al quitar auriculares.
 - Bloquear la pantalla o cambiar de app mantiene la sesión. El plugin local `with-background-playback` corrige el valor `stopWithTask` del servicio Android para que quitar la actividad de recientes no solicite detenerlo. Forzar la detención desde ajustes de Android, cerrar forzosamente en iOS o que el sistema mate el proceso detiene la música.

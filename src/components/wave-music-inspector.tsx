@@ -1,6 +1,6 @@
 import { useRef, useState, useSyncExternalStore } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { colors } from './plantia-theme';
+import { colors } from './saviasound-theme';
 import { getWaveInspection, subscribeWaveInspection, type WindowReadout } from '../lib/wave-music/inspection';
 
 const ROLES: Record<string, string> = { foundation: 'acordes', contour: 'melodía', detail: 'respuesta',

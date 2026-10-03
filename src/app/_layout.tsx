@@ -1,6 +1,6 @@
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { colors } from "@/components/plantia-theme";
+import { colors } from "@/components/saviasound-theme";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 export default function RootLayout() {
   return (
