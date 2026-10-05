@@ -10,6 +10,10 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)scheduleSfz:(NSNumber *)handle time:(NSNumber *)time key:(NSNumber *)key note:(NSNumber *)note velocity:(NSNumber *)velocity duration:(NSNumber *)duration;
 + (void)retainSamples:(NSNumber *)handle keys:(NSArray<NSNumber *> *)keys;
 + (NSData *)render:(NSNumber *)handle frames:(NSInteger)frames;
++ (void)beginMp3:(NSNumber *)handle path:(NSString *)path rate:(NSInteger)rate;
++ (void)renderMp3:(NSNumber *)handle frames:(NSInteger)frames;
++ (void)finishMp3:(NSNumber *)handle;
++ (void)cancelMp3:(NSNumber *)handle;
 + (NSArray<NSNumber *> *)status:(NSNumber *)handle;
 @end
 NS_ASSUME_NONNULL_END

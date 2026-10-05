@@ -8,7 +8,7 @@ static std::vector<double> doubles(JNIEnv* env,jdoubleArray a) {
 }
 extern "C" {
 JNIEXPORT jint JNICALL JNI_METHOD(createNative)(JNIEnv*env,jobject,jdouble r){GUARD{return sonora::create(r);}FAIL(0)}
-JNIEXPORT void JNICALL JNI_METHOD(destroyNative)(JNIEnv*env,jobject,jint id){GUARD{sonora::engines.erase(id);}FAIL()}
+JNIEXPORT void JNICALL JNI_METHOD(destroyNative)(JNIEnv*env,jobject,jint id){GUARD{sonora::mp3Writers.erase(id);sonora::engines.erase(id);}FAIL()}
 JNIEXPORT void JNICALL JNI_METHOD(configureNative)(JNIEnv*env,jobject,jint id,jdoubleArray a){GUARD{auto v=doubles(env,a);sonora::get(id).configure(v.data(),v.size());}FAIL()}
 JNIEXPORT void JNICALL JNI_METHOD(scheduleNative)(JNIEnv*env,jobject,jint id,jdoubleArray a){GUARD{auto v=doubles(env,a);sonora::get(id).schedule(v.data(),v.size());}FAIL()}
 JNIEXPORT void JNICALL JNI_METHOD(retainNative)(JNIEnv*env,jobject,jint id,jdoubleArray a){GUARD{auto v=doubles(env,a);sonora::get(id).retainSamples(v.data(),v.size());}FAIL()}
@@ -30,6 +30,22 @@ JNIEXPORT jbyteArray JNICALL JNI_METHOD(renderNative)(JNIEnv*env,jobject,jint id
   std::vector<float> pcm(frames*2);sonora::get(id).render(pcm.data(),pcm.data()+frames,frames);
   auto out=env->NewByteArray(pcm.size()*sizeof(float));if(out)env->SetByteArrayRegion(out,0,pcm.size()*sizeof(float),reinterpret_cast<const jbyte*>(pcm.data()));return out;
 }FAIL(nullptr)}
+JNIEXPORT void JNICALL JNI_METHOD(beginMp3Native)(JNIEnv*env,jobject,jint id,jstring path,jint rate){GUARD{
+  sonora::get(id);
+  if(sonora::mp3Writers.count(id))throw std::runtime_error("MP3 export already started");
+  const char* value=env->GetStringUTFChars(path,nullptr);
+  std::string filename(value);env->ReleaseStringUTFChars(path,value);
+  sonora::mp3Writers[id]=std::make_unique<sonora::Mp3Writer>(filename,rate);
+}FAIL()}
+JNIEXPORT void JNICALL JNI_METHOD(renderMp3Native)(JNIEnv*env,jobject,jint id,jint frames){GUARD{
+  sonora::mp3Writers.at(id)->render(sonora::get(id),frames);
+}FAIL()}
+JNIEXPORT void JNICALL JNI_METHOD(finishMp3Native)(JNIEnv*env,jobject,jint id){GUARD{
+  sonora::mp3Writers.at(id)->finish();sonora::mp3Writers.erase(id);
+}FAIL()}
+JNIEXPORT void JNICALL JNI_METHOD(cancelMp3Native)(JNIEnv*env,jobject,jint id){GUARD{
+  sonora::mp3Writers.erase(id);
+}FAIL()}
 JNIEXPORT jdoubleArray JNICALL JNI_METHOD(statusNative)(JNIEnv*env,jobject,jint id){GUARD{
   auto& c=sonora::get(id);double status[]={c.time(),double(c.voiceCount()),double(c.pendingCount())};
   auto out=env->NewDoubleArray(3);if(out)env->SetDoubleArrayRegion(out,0,3,status);return out;

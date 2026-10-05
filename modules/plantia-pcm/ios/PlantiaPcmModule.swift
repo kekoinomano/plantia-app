@@ -5,6 +5,7 @@ public class PlantiaPcmModule: Module {
   public func definition() -> ModuleDefinition {
     Name("PlantiaPcm")
     Function("create") { (rate: Double) in PlantiaPcmBridge.create(rate).intValue }
+    Function("createOffline") { (rate: Double) in PlantiaPcmBridge.create(rate).intValue }
     Function("destroy") { (id: Int) in PlantiaPcmBridge.destroy(NSNumber(value: id)) }
     Function("configure") { (id: Int, values: [Double]) in
       PlantiaPcmBridge.configure(NSNumber(value: id), values: values.map { NSNumber(value: $0) })
@@ -29,6 +30,14 @@ public class PlantiaPcmModule: Module {
     Function("render") { (id: Int, frames: Int) in
       PlantiaPcmBridge.render(NSNumber(value: id), frames: frames)
     }
+    Function("beginMp3") { (id: Int, path: String, rate: Int) in
+      PlantiaPcmBridge.beginMp3(NSNumber(value: id), path: path, rate: rate)
+    }
+    Function("renderMp3") { (id: Int, frames: Int) in
+      PlantiaPcmBridge.renderMp3(NSNumber(value: id), frames: frames)
+    }
+    Function("finishMp3") { (id: Int) in PlantiaPcmBridge.finishMp3(NSNumber(value: id)) }
+    Function("cancelMp3") { (id: Int) in PlantiaPcmBridge.cancelMp3(NSNumber(value: id)) }
     Function("status") { (id: Int) in PlantiaPcmBridge.status(NSNumber(value: id)).map { $0.doubleValue } }
   }
 }

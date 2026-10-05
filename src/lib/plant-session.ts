@@ -10,6 +10,9 @@ import type { DiscoveredDevice, PlantConnection } from "./plant-connection";
 import type { Lane } from "./sonora/music-types";
 import type { NativeAudio } from "./audio/native-audio";
 import { SignalTimeline, INITIAL_SIGNAL_TIMING, type ChartPoint, type SignalTiming } from "./signal-chart";
+import { MAX_RECORDING_MS, RecordingWriter, type SavedRecording } from "./recordings";
+import { loadRecording } from "./recordings";
+import type { Recording } from "./sonora/signal";
 
 export type SignalPoint = ChartPoint;
 type Reading = { at: number; mean: number; amplitude: number; change: number };
@@ -31,9 +34,11 @@ type Snapshot = {
   error: string | null;
   signal: "waiting" | "live" | "gap";
   indicators: PlantIndicators;
+  recording: { name: string; startedAt: string; durationMs: number } | null;
+  replay: { id: string; name: string; positionMs: number; durationMs: number; paused: boolean } | null;
 };
 
-// A session outlives screen renders and AppState changes; there is no recording.
+// A session outlives screen renders and AppState changes.
 class PlantSession {
   private deviceNames = new Map<string, string>();
   private snapshot: Snapshot = {
@@ -50,6 +55,8 @@ class PlantSession {
     error: null,
     signal: "waiting",
     indicators: EMPTY_INDICATORS,
+    recording: null,
+    replay: null,
   };
   private listeners = new Set<() => void>();
   private controls = this.snapshot;
@@ -80,6 +87,13 @@ class PlantSession {
   private readings: Reading[] = [];
   private lastIndicatorsAt = 0;
   private previousPacketMean: number | null = null;
+  private writer: RecordingWriter | null = null;
+  private replayData: Recording | null = null;
+  private replayIndex = 0;
+  private replayOrigin = 0;
+  private replayTimer: ReturnType<typeof setTimeout> | null = null;
+  private replayClosing: Promise<void> | null = null;
+  private recordingTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     void this.hydrate();
@@ -222,13 +236,22 @@ class PlantSession {
     } });
   };
   private receive = (packet: PlantPacket) => {
+    if (this.writer && this.snapshot.connection === "connected") {
+      try {
+        this.writer.add(packet);
+        if (this.writer.durationMs >= MAX_RECORDING_MS) this.stopRecording();
+        else if (this.writer.packetCount % 25 === 0) this.update({ recording: {
+          name: this.writer.name, startedAt: this.writer.startedAt, durationMs: this.writer.durationMs,
+        } });
+      } catch (error) { this.stopRecording(); this.error(error); }
+    }
     this.audio?.push(packet);
     const now = performance.now();
     // Music receives the untouched packet. Only the graph uses reconstructed time.
     if (!this.timeline.push(packet.values ?? [], now, packet.seq)) return;
     this.lastPacketAt = now;
     if (!packet.values) return;
-    if (this.connectedId) {
+    if (this.connectedId || this.replayData) {
       const mean = packet.values.reduce((sum, value) => sum + value, 0) / packet.values.length;
       if (mean > 0) {
         const amplitude = Math.max(...packet.values) - Math.min(...packet.values);
@@ -259,6 +282,8 @@ class PlantSession {
   private scanTimer: ReturnType<typeof setTimeout> | null = null;
 
   connect = async (rememberedId?: string) => {
+    if (this.replayData) this.stopReplay();
+    await this.replayClosing;
     if (this.snapshot.connection !== "idle") return;
     if (Platform.OS === "web") {
       this.error(new Error("Abre la app de saviasound en iOS o Android para conectar el sensor."));
@@ -334,15 +359,17 @@ class PlantSession {
     let audio: NativeAudio | null = null;
     try {
       const { NativeAudio } = await import("./audio/native-audio");
-      if (generation !== this.generation || this.snapshot.connection !== "connected") return;
+      if (generation !== this.generation || (this.snapshot.connection !== "connected" && !this.replayData)) return;
       audio = new NativeAudio(
         playing => { if (generation === this.generation) this.update({ playing }); },
         error => { if (generation === this.generation) this.error(error); },
-        () => { if (generation === this.generation) void this.disconnect(); },
+        () => { if (generation === this.generation) {
+          if (this.replayData) this.stopReplay(); else void this.disconnect();
+        } },
       );
       this.audio = audio;
       await audio.start(this.snapshot.config);
-      if (generation !== this.generation || this.snapshot.connection !== "connected") {
+      if (generation !== this.generation || (this.snapshot.connection !== "connected" && !this.replayData)) {
         if (this.audio === audio) this.audio = null;
         await audio.close();
       } else {
@@ -351,7 +378,7 @@ class PlantSession {
     } catch (error) {
       if (this.audio === audio) this.audio = null;
       await audio?.close().catch(() => {});
-      if (generation === this.generation && this.snapshot.connection === "connected") this.error(error);
+      if (generation === this.generation && (this.snapshot.connection === "connected" || this.replayData)) this.error(error);
     }
   };
 
@@ -407,6 +434,10 @@ class PlantSession {
     this.foreground = AppState.currentState === "active";
     this.appSubscription = AppState.addEventListener("change", (state) => {
       this.foreground = state === "active";
+      if (!this.foreground && this.replayData && !this.snapshot.replay?.paused) this.toggleReplayPause();
+      if (this.writer) {
+        try { this.writer.flush(); } catch (error) { this.stopRecording(); this.error(error); }
+      }
       if (this.graphTimer) clearInterval(this.graphTimer);
       this.graphTimer = null;
       if (this.foreground) {
@@ -419,6 +450,8 @@ class PlantSession {
 
   disconnect = async (error: string | null = null) => {
     if (this.snapshot.connection === "disconnecting") return;
+    this.stopRecording();
+    if (this.replayData) { this.stopReplay(); return; }
     ++this.generation;
     if (this.scanTimer) {
       clearTimeout(this.scanTimer);
@@ -450,6 +483,11 @@ class PlantSession {
   };
 
   setVolume = (volume: number) => this.configure({ ...this.snapshot.config, volume });
+  configurationForProfile = (profile: ProfileId): Configuration => {
+    const saved = this.moodSettings[profile];
+    return sanitizeConfiguration({ ...this.snapshot.config, profile,
+      scale: saved?.scale ?? "", tuning: saved?.tuning ?? Number.NaN, volume: 1 });
+  };
   selectProfile = (profile: Configuration['profile']) => {
     const saved = this.moodSettings[profile];
     this.configure({
@@ -473,6 +511,111 @@ class PlantSession {
   togglePlayback = () => {
     void this.audio?.setMuted(this.snapshot.playing).catch(this.error);
   };
+  startRecording = (name: string) => {
+    if (this.writer || this.snapshot.connection !== "connected" || this.snapshot.signal !== "live") return;
+    try {
+      this.writer = new RecordingWriter(name.trim() || `Grabación ${Date.now()}`);
+      this.update({ recording: { name: this.writer.name, startedAt: this.writer.startedAt, durationMs: 0 } });
+      this.recordingTimer = setTimeout(this.stopRecording, MAX_RECORDING_MS);
+    } catch (error) { this.error(error); }
+  };
+  stopRecording = (): SavedRecording | null => {
+    if (this.recordingTimer) clearTimeout(this.recordingTimer);
+    this.recordingTimer = null;
+    const writer = this.writer;
+    this.writer = null;
+    this.update({ recording: null });
+    if (!writer) return null;
+    try { return writer.finish(); } catch (error) { this.error(error); return null; }
+  };
+
+  startReplay = async (id: string) => {
+    const recording = loadRecording(id);
+    if (!recording.packets.length) throw new Error("La grabación no contiene datos.");
+    if (this.snapshot.connection !== "idle") await this.disconnect();
+    if (this.replayData) this.stopReplay();
+    await this.replayClosing;
+    const generation = ++this.generation;
+    this.replayData = recording;
+    this.replayIndex = 0;
+    this.replayOrigin = performance.now();
+    this.timeline = new SignalTimeline();
+    this.connectedId = null;
+    this.readings = [];
+    this.previousPacketMean = null;
+    this.sessionHistory = { mean: 0, amplitude: 0, change: 0, count: 0, meanM2: 0 };
+    this.lastIndicatorsAt = 0;
+    this.lastPacketAt = 0;
+    this.graphLastValue = null;
+    this.graphRevision++;
+    this.update({ points: [], signal: "waiting", indicators: EMPTY_INDICATORS, audioReady: false,
+      replay: { id, name: recording.session.name, positionMs: 0,
+        durationMs: recording.packets.at(-1)!.elapsed_ms, paused: false } });
+    this.watchAppState();
+    await this.startAudio(generation);
+    if (!this.snapshot.audioReady) {
+      this.stopReplay();
+      throw new Error(this.snapshot.error ?? "No se pudo preparar el audio de la grabación.");
+    }
+    if (this.replayData && generation === this.generation) {
+      this.replayOrigin = performance.now();
+      this.scheduleReplay();
+    }
+  };
+  private scheduleReplay = () => {
+    const recording = this.replayData;
+    if (!recording || this.snapshot.replay?.paused) return;
+    const elapsed = performance.now() - this.replayOrigin;
+    while (this.replayIndex < recording.packets.length && recording.packets[this.replayIndex].elapsed_ms <= elapsed + 5) {
+      const packet = recording.packets[this.replayIndex++];
+      this.receive(packet);
+    }
+    if (this.replayIndex >= recording.packets.length) {
+      this.update({ replay: { ...this.snapshot.replay!, positionMs: this.snapshot.replay!.durationMs } });
+      this.replayTimer = setTimeout(this.stopReplay, 3600);
+      return;
+    }
+    const next = recording.packets[this.replayIndex].elapsed_ms;
+    this.update({ replay: { ...this.snapshot.replay!, positionMs: Math.min(elapsed, next) } });
+    this.replayTimer = setTimeout(this.scheduleReplay, Math.max(1, Math.min(100, next - elapsed)));
+  };
+  toggleReplayPause = () => {
+    const replay = this.snapshot.replay;
+    if (!replay || !this.replayData || this.replayIndex >= this.replayData.packets.length) return;
+    if (this.replayTimer) clearTimeout(this.replayTimer);
+    this.replayTimer = null;
+    if (replay.paused) {
+      void (async () => {
+        try {
+          await this.audio?.setPlaying(true);
+          if (!this.replayData) return;
+          this.replayOrigin = performance.now() - replay.positionMs;
+          this.update({ replay: { ...replay, paused: false } });
+          this.scheduleReplay();
+        } catch (error) { this.error(error); }
+      })();
+    } else {
+      const positionMs = performance.now() - this.replayOrigin;
+      this.update({ replay: { ...replay, paused: true, positionMs } });
+      void this.audio?.setPlaying(false).catch(this.error);
+    }
+  };
+  stopReplay = () => {
+    if (!this.replayData) return;
+    ++this.generation;
+    if (this.replayTimer) clearTimeout(this.replayTimer);
+    this.replayTimer = null;
+    this.replayData = null;
+    const audio = this.audio;
+    this.audio = null;
+    this.replayClosing = (audio?.close() ?? Promise.resolve()).catch(this.error).finally(() => { this.replayClosing = null; });
+    if (this.graphTimer) clearInterval(this.graphTimer);
+    this.graphTimer = null;
+    this.appSubscription?.remove();
+    this.appSubscription = null;
+    this.update({ replay: null, playing: false, audioReady: false, signal: "waiting", indicators: EMPTY_INDICATORS });
+  };
+  waitForAudioIdle = async () => { await this.replayClosing; };
   preview = (slot: string) => this.audio?.preview(slot);
   clearError = () => this.update({ error: null });
 }

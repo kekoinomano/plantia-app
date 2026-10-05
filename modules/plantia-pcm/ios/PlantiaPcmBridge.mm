@@ -5,7 +5,7 @@
 static std::vector<double> doubles(NSArray<NSNumber*>* a){std::vector<double> v;v.reserve(a.count);for(NSNumber*n in a)v.push_back(n.doubleValue);return v;}
 @implementation PlantiaPcmBridge
 + (NSNumber*)create:(double)rate {GUARD{return @(sonora::create(rate));}FAIL}
-+ (void)destroy:(NSNumber*)h {GUARD{sonora::engines.erase(h.intValue);}FAIL}
++ (void)destroy:(NSNumber*)h {GUARD{sonora::mp3Writers.erase(h.intValue);sonora::engines.erase(h.intValue);}FAIL}
 + (void)configure:(NSNumber*)h values:(NSArray<NSNumber*>*)a {GUARD{auto v=doubles(a);sonora::get(h.intValue).configure(v.data(),v.size());}FAIL}
 + (void)schedule:(NSNumber*)h values:(NSArray<NSNumber*>*)a {GUARD{auto v=doubles(a);sonora::get(h.intValue).schedule(v.data(),v.size());}FAIL}
 + (void)retainSamples:(NSNumber*)h keys:(NSArray<NSNumber*>*)a {GUARD{auto v=doubles(a);sonora::get(h.intValue).retainSamples(v.data(),v.size());}FAIL}
@@ -24,5 +24,17 @@ static std::vector<double> doubles(NSArray<NSNumber*>* a){std::vector<double> v;
   NSMutableData* data=[NSMutableData dataWithLength:frames*2*sizeof(float)];float*p=static_cast<float*>(data.mutableBytes);
   sonora::get(h.intValue).render(p,p+frames,frames);return data;
 }FAIL}
++ (void)beginMp3:(NSNumber*)h path:(NSString*)path rate:(NSInteger)rate {GUARD{
+  sonora::get(h.intValue);
+  if(sonora::mp3Writers.count(h.intValue))throw std::runtime_error("MP3 export already started");
+  sonora::mp3Writers[h.intValue]=std::make_unique<sonora::Mp3Writer>(std::string(path.UTF8String),int(rate));
+}FAIL}
++ (void)renderMp3:(NSNumber*)h frames:(NSInteger)frames {GUARD{
+  sonora::mp3Writers.at(h.intValue)->render(sonora::get(h.intValue),int(frames));
+}FAIL}
++ (void)finishMp3:(NSNumber*)h {GUARD{
+  sonora::mp3Writers.at(h.intValue)->finish();sonora::mp3Writers.erase(h.intValue);
+}FAIL}
++ (void)cancelMp3:(NSNumber*)h {GUARD{sonora::mp3Writers.erase(h.intValue);}FAIL}
 + (NSArray<NSNumber*>*)status:(NSNumber*)h {GUARD{auto&c=sonora::get(h.intValue);return @[@(c.time()),@(c.voiceCount()),@(c.pendingCount())];}FAIL}
 @end

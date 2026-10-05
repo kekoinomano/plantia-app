@@ -61,7 +61,7 @@ function shortlist(times: number[], values: number[], seconds: number, maxBin: n
 /** Freeze selected waves. At most 32 candidates and eight selections, even for
  * a target of 100%. No repeated full-spectrum scan for each residual.
  */
-function* calculateWindow(points: readonly RawPoint[], seconds: number, target: number): Generator<void, Fit | null> {
+function* calculateWindow(points: readonly RawPoint[], seconds: number, target: number, sliceMs: number): Generator<void, Fit | null> {
   const last = points.at(-1);
   if (!last || points[0].time > last.time - seconds || seconds < 1 || seconds > 16) return null;
   const window = points.filter(p => p.time > last.time - seconds);
@@ -80,7 +80,7 @@ function* calculateWindow(points: readonly RawPoint[], seconds: number, target: 
     const sin = new Float64Array(n), cos = new Float64Array(n);
     let ss = 0, cc = 0, sc = 0;
     for (let i = 0; i < n; i++) {
-      if (i % 256 === 0 && performance.now() - sliceStart >= 4) { yield; sliceStart = performance.now(); }
+      if (i % 256 === 0 && performance.now() - sliceStart >= sliceMs) { yield; sliceStart = performance.now(); }
       const angle = 2 * Math.PI * bin * times[i] / seconds;
       const s = Math.sin(angle), c = Math.cos(angle);
       sin[i] = s; cos[i] = c; ss += s * s; cc += c * c; sc += s * c;
@@ -99,7 +99,7 @@ function* calculateWindow(points: readonly RawPoint[], seconds: number, target: 
       if (determinant <= 1e-10 * n * n) continue;
       let sy = 0, cy = 0;
       for (let i = 0; i < n; i++) {
-        if (i % 256 === 0 && performance.now() - sliceStart >= 4) { yield; sliceStart = performance.now(); }
+        if (i % 256 === 0 && performance.now() - sliceStart >= sliceMs) { yield; sliceStart = performance.now(); }
         sy += sin[i] * residual[i]; cy += cos[i] * residual[i];
       }
       const a = (cc * sy - sc * cy) / determinant, b = (ss * cy - sc * sy) / determinant;
@@ -111,7 +111,7 @@ function* calculateWindow(points: readonly RawPoint[], seconds: number, target: 
     const values = new Array<number>(n);
     let error = 0;
     for (let i = 0; i < n; i++) {
-      if (i % 256 === 0 && performance.now() - sliceStart >= 4) { yield; sliceStart = performance.now(); }
+      if (i % 256 === 0 && performance.now() - sliceStart >= sliceMs) { yield; sliceStart = performance.now(); }
       values[i] = sine * best.sin[i] + cosine * best.cos[i];
       residual[i] -= values[i]; fitted[i] += values[i]; error += residual[i] ** 2;
     }
@@ -128,9 +128,9 @@ function* calculateWindow(points: readonly RawPoint[], seconds: number, target: 
 }
 
 export async function analyzeWindow(points: readonly RawPoint[], seconds: number, target: number,
-  cancelled: () => boolean = () => false): Promise<Fit | null> {
+  cancelled: () => boolean = () => false, sliceMs = 4): Promise<Fit | null> {
   const began = performance.now();
-  const calculation = calculateWindow(points, seconds, target);
+  const calculation = calculateWindow(points, seconds, target, sliceMs);
   let computeMs = 0, maxSliceMs = 0;
   while (!cancelled()) {
     const start = performance.now();

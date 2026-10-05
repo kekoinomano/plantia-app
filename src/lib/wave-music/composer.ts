@@ -65,14 +65,14 @@ export class WaveComposer {
   }
 
   constructor(private config: Configuration, private mood: WaveMood,
-    private ready: () => void, fail: (error: unknown) => void) {
+    private ready: () => void, fail: (error: unknown) => void, analysisSliceMs = 4) {
     this.rules = mood.create();
     this.analyzer = new WaveAnalyzer(frame => {
       if (this.closed) return;
       this.frame = frame; this.revision++;
       if (!frame) this.release('waiting-for-complete-windows');
       this.ready();
-    }, fail);
+    }, fail, analysisSliceMs);
   }
 
   push(packet: PlantPacket, now: number) {

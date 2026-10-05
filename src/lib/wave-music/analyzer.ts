@@ -15,7 +15,7 @@ export class WaveAnalyzer {
   private identity = 0;
   private previous: WaveFrame | null = null;
   constructor(private publish: (frame: WaveFrame | null) => void,
-    private fail: (error: unknown) => void) {}
+    private fail: (error: unknown) => void, private sliceMs = 4) {}
 
   push(packet: PlantPacket, now: number) {
     const before = this.buffer.generation;
@@ -36,9 +36,9 @@ export class WaveAnalyzer {
     this.busy = true;
     this.pending = (async () => {
       try {
-        const short = await analyzeWindow(points, 3, 95, cancelled);
+        const short = await analyzeWindow(points, 3, 95, cancelled, this.sliceMs);
         if (cancelled()) return;
-        const long = available >= 8 ? await analyzeWindow(points, 8, 80, cancelled) : null;
+        const long = available >= 8 ? await analyzeWindow(points, 8, 80, cancelled, this.sliceMs) : null;
         if (cancelled()) return;
         // An intro uses only the real 3 s fit. No zero filling or invented long fit.
         if (!short || available >= 8 && !long) { this.previous = null; this.publish(null); return; }

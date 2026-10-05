@@ -15,6 +15,10 @@ class PlantiaPcmModule : Module() {
   private external fun scheduleSfzNative(id: Int, time: Double, key: Int, note: Int, velocity: Int, duration: Double)
   private external fun retainNative(id: Int, keys: DoubleArray)
   private external fun renderNative(id: Int, frames: Int): ByteArray
+  private external fun beginMp3Native(id: Int, path: String, rate: Int)
+  private external fun renderMp3Native(id: Int, frames: Int)
+  private external fun finishMp3Native(id: Int)
+  private external fun cancelMp3Native(id: Int)
   private external fun statusNative(id: Int): DoubleArray
 
   private val engines = mutableSetOf<Int>()
@@ -26,6 +30,7 @@ class PlantiaPcmModule : Module() {
       context.startService(Intent(context, PlantiaPlaybackLifecycleService::class.java))
       createNative(rate).also { engines.add(it) }
     }
+    Function("createOffline") { rate: Double -> createNative(rate).also { engines.add(it) } }
     Function("destroy") { id: Int ->
       destroyNative(id)
       engines.remove(id)
@@ -49,6 +54,10 @@ class PlantiaPcmModule : Module() {
     }
     Function("retain") { id: Int, keys: List<Double> -> retainNative(id, keys.toDoubleArray()) }
     Function("render") { id: Int, frames: Int -> renderNative(id, frames) }
+    Function("beginMp3") { id: Int, path: String, rate: Int -> beginMp3Native(id, path, rate) }
+    Function("renderMp3") { id: Int, frames: Int -> renderMp3Native(id, frames) }
+    Function("finishMp3") { id: Int -> finishMp3Native(id) }
+    Function("cancelMp3") { id: Int -> cancelMp3Native(id) }
     Function("status") { id: Int -> statusNative(id).toList() }
   }
 }

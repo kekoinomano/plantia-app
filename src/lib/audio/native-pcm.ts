@@ -8,6 +8,7 @@ import { sfzInstrument } from './sfz-library';
 
 type Module = {
   create(rate: number): number;
+  createOffline(rate: number): number;
   destroy(id: number): void;
   configure(id: number, values: number[]): void;
   schedule(id: number, values: number[]): void;
@@ -16,6 +17,10 @@ type Module = {
   scheduleSfz(id: number, time: number, key: number, note: number, velocity: number, duration: number): void;
   retain(id: number, keys: number[]): void;
   render(id: number, frames: number): Uint8Array;
+  beginMp3(id: number, path: string, rate: number): void;
+  renderMp3(id: number, frames: number): void;
+  finishMp3(id: number): void;
+  cancelMp3(id: number): void;
   status(id: number): number[];
 };
 const lanes: Lane[] = ["synth", "instrument", "greeting"];
@@ -35,7 +40,7 @@ export class NativePcmCore {
   private nextSfzId = 1;
   private state = { voices: 0, pending: 0 };
 
-  constructor(private rate: number, config: Configuration, private bank: Bank) {
+  constructor(private rate: number, config: Configuration, private bank: Bank, offline = false) {
     const module = requireOptionalNativeModule<Module>("PlantiaPcm");
     if (!module) {
       const message = "Falta el módulo de audio nativo en esta instalación. Recompila con npm run android o, en iOS, npx pod-install y npm run ios; recargar Metro no instala el módulo nativo.";
@@ -43,7 +48,7 @@ export class NativePcmCore {
       throw new Error(message);
     }
     this.module = module;
-    this.id = module.create(rate);
+    this.id = offline ? module.createOffline(rate) : module.create(rate);
     try { this.configure(config, bank); }
     catch (error) { this.close(); throw error; }
   }
@@ -146,6 +151,12 @@ export class NativePcmCore {
     left.set(pcm.subarray(0, left.length)); right.set(pcm.subarray(left.length));
     this.refresh();
   }
+  beginMp3(uri: string) {
+    this.module.beginMp3(this.id, decodeURI(uri.replace(/^file:\/\//, '')), this.rate);
+  }
+  renderMp3(frames: number) { this.module.renderMp3(this.id, frames); }
+  finishMp3() { this.module.finishMp3(this.id); }
+  cancelMp3() { this.module.cancelMp3(this.id); }
   private refresh() {
     const [time, voices, pending] = this.module.status(this.id);
     this.cursor = time; this.state = { voices, pending };
