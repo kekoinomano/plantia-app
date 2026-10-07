@@ -9,6 +9,7 @@ import { NativeSynth } from "./native-synth";
 import { WaveComposer } from "../wave-music/composer";
 import { waveMood } from "../wave-music/registry";
 import { publishWaveInspection } from "../wave-music/inspection";
+import { t } from '../i18n';
 
 type Settings = { config: Configuration; bank: Bank };
 
@@ -69,7 +70,7 @@ export class NativeAudio {
     if (Platform.OS === "android") await AudioManager.requestNotificationPermissions();
     if (this.closed) return;
     await PlaybackNotificationManager.show({
-      title: "La música de tu planta",
+      title: t("La música de tu planta"),
       artist: "saviasound",
       state: "playing",
     });

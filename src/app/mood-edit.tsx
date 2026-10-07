@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from '@/lib/i18n';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ScreenHeader } from "@/components/screen-header";
@@ -7,6 +8,7 @@ import { colors, moodPalette } from "@/components/saviasound-theme";
 import { plantSession, usePlantControls } from "@/lib/plant-session";
 import { profile } from "@/lib/sonora/focus";
 import { SCALES, TUNINGS } from "@/lib/sonora/presets";
+import { moodName } from '@/lib/mood-copy';
 
 const SCALE_NAMES: Record<string, string> = {
   Ionian: "Jónica", Doric: "Dórica", Phrygian: "Frigia", Lydian: "Lidia",
@@ -14,9 +16,9 @@ const SCALE_NAMES: Record<string, string> = {
   "Maj Pentatonic": "Pentatónica mayor", "Min Pentatonic": "Pentatónica menor",
   wholetone: "Tonos enteros",
 };
-const scaleName = (scale: string) => SCALE_NAMES[scale] ?? scale;
-
 export default function MoodEditScreen() {
+  const { language, t } = useTranslation();
+  const scaleName = (scale: string) => t(SCALE_NAMES[scale] ?? scale);
   const state = usePlantControls();
   const mood = profile(state.config.profile);
   const palette = moodPalette(mood.id);
@@ -25,12 +27,12 @@ export default function MoodEditScreen() {
     plantSession.configure({ ...state.config, ...patch });
 
   return <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
-    <ScreenHeader title="Editar mood" />
+    <ScreenHeader title={t('Editar mood')} />
     <View style={styles.content}>
-      <Text style={styles.mood}>{mood.name.toUpperCase()}</Text>
+      <Text style={styles.mood}>{moodName(mood.id, mood.name, language).toUpperCase()}</Text>
 
       <View style={styles.setting}>
-        <Text style={styles.label}>Frecuencia</Text>
+        <Text style={styles.label}>{t('Frecuencia')}</Text>
         <View style={styles.frequencyRow}>
           {TUNINGS.map(tuning => {
             const selected = state.config.tuning === tuning;
@@ -46,7 +48,7 @@ export default function MoodEditScreen() {
       <View style={styles.divider} />
 
       <View style={styles.setting}>
-        <Text style={styles.label}>Escala</Text>
+        <Text style={styles.label}>{t('Escala')}</Text>
         <Pressable accessibilityRole="button" accessibilityState={{ expanded: scalesOpen }}
           onPress={() => setScalesOpen(true)} style={styles.select}>
           <Text style={styles.selectText}>{scaleName(state.config.scale)}</Text>
@@ -60,7 +62,7 @@ export default function MoodEditScreen() {
       <Pressable style={styles.backdrop} onPress={() => setScalesOpen(false)}>
         <Pressable style={styles.sheet} onPress={() => {}}>
           <View style={styles.handle} />
-          <Text style={styles.sheetTitle}>Escala</Text>
+          <Text style={styles.sheetTitle}>{t('Escala')}</Text>
           <ScrollView showsVerticalScrollIndicator={false}>
             {Object.keys(SCALES).map(scale => {
               const selected = state.config.scale === scale;

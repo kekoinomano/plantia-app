@@ -1,6 +1,6 @@
 import { useRouter, type Href } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { Animated, Easing, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Animated, Easing, Image, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Icon } from "@/components/plant-icon";
 import { LivingPattern, WaveMark } from "@/components/saviasound-visuals";
@@ -9,6 +9,8 @@ import { colors, moodPalette } from "@/components/saviasound-theme";
 import { plantSession, usePlantControls, type PlantIndicators } from "@/lib/plant-session";
 import { profile } from "@/lib/sonora/focus";
 import { listRecordings, MAX_RECORDING_MINUTES } from "@/lib/recordings";
+import { useTranslation } from "@/lib/i18n";
+import { moodName, moodDescription } from '@/lib/mood-copy';
 
 const readings: { key: keyof PlantIndicators; title: string; low: string; high: string; explanation: string }[] = [
   { key: "speed", title: "Velocidad", low: "MÁS LENTA", high: "MÁS RÁPIDA",
@@ -40,6 +42,7 @@ function ReadingBar({ value, color }: { value: number | null; color: string }) {
 }
 
 export default function HomeScreen() {
+  const { language, t } = useTranslation();
   const router = useRouter();
   const [openReading, setOpenReading] = useState<(typeof readings)[number] | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -51,9 +54,9 @@ export default function HomeScreen() {
   const bluetoothConnected = state.connection === "connected";
   const connected = bluetoothConnected || !!state.replay;
   const busy = state.connection === "scanning" || state.connection === "connecting" || state.connection === "disconnecting";
-  const status = bluetoothConnected ? state.device || "Planta conectada" : busy ? "Conectando…" : "Sin conectar";
+  const status = bluetoothConnected ? t(state.device || "Dispositivo conectado") : busy ? t("Conectando…") : t("Sin conectar");
   const openRecordName = () => {
-    setRecordingName(`Grabación ${listRecordings().length + 1}`);
+    setRecordingName(`${t('Grabación')} ${listRecordings().length + 1}`);
     setNameOpen(true);
   };
 
@@ -61,14 +64,14 @@ export default function HomeScreen() {
     <LivingPattern color={palette.accent} />
     <ScrollView style={styles.scroll} contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
       <View style={styles.header}>
-        <Image source={require("../../assets/images/saviasound-logo.png")} style={styles.brand} resizeMode="contain" accessibilityLabel="saviasound" />
+        <Image source={require("../../assets/images/saviasound-logo-new.png")} style={styles.brand} resizeMode="contain" accessibilityLabel="saviasound" />
         <View style={styles.headerActions}>
           <Pressable accessibilityRole="button" accessibilityLabel={`Bluetooth. ${status}`}
             onPress={() => router.push("/bluetooth" as Href)} style={styles.bluetooth}>
             <View style={[styles.statusDot, { backgroundColor: bluetoothConnected ? palette.accent : colors.muted }]} />
             <Icon name="bluetooth" size={18} color={bluetoothConnected ? colors.ink : colors.muted} />
           </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel="Abrir menú"
+          <Pressable accessibilityRole="button" accessibilityLabel={t('Abrir menú')}
             onPress={() => setMenuOpen(true)} style={styles.bluetooth}>
             <Icon name="menu" size={20} color={colors.ink} />
           </Pressable>
@@ -83,45 +86,45 @@ export default function HomeScreen() {
         {readings.map(reading => {
           const value = connected && state.signal === "live" ? state.indicators[reading.key] : null;
           return <Pressable key={reading.key} accessibilityRole="button"
-            accessibilityLabel={`${reading.title}. ${value === null ? "Esperando señal" : value < .35 ? reading.low : value > .65 ? reading.high : "Nivel habitual"}. Toca para saber más.`}
+            accessibilityLabel={`${t(reading.title)}. ${value === null ? t("Esperando señal") : value < .35 ? t(reading.low) : value > .65 ? t(reading.high) : t("Nivel habitual")}. ${t('Toca para saber más.')}`}
             onPress={() => setOpenReading(reading)} style={styles.reading}>
-            <Text style={styles.readingTitle}>{reading.title}</Text>
+            <Text style={styles.readingTitle}>{t(reading.title)}</Text>
             <ReadingBar value={value} color={palette.accent} />
           </Pressable>;
         })}
       </View>
 
       {state.error && <Pressable accessibilityRole="alert" onPress={plantSession.clearError} style={styles.error}>
-        <Text style={styles.errorText}>{state.error}</Text><Icon name="close" size={15} color={colors.amber} />
+        <Text style={styles.errorText}>{t(state.error)}</Text><Icon name="close" size={15} color={colors.amber} />
       </Pressable>}
 
       <View style={styles.bottom}>
         {state.recording && <View style={styles.recordingStatus}>
           <View style={styles.recordingDot} />
-          <Text style={styles.recordingStatusText}>GRABANDO · {Math.floor(state.recording.durationMs / 60_000)}:{String(Math.floor(state.recording.durationMs / 1000) % 60).padStart(2, "0")}</Text>
+          <Text style={styles.recordingStatusText}>{t('GRABANDO')} · {Math.floor(state.recording.durationMs / 60_000)}:{String(Math.floor(state.recording.durationMs / 1000) % 60).padStart(2, "0")}</Text>
         </View>}
         {state.replay && <View style={styles.replayBar}>
           <View style={{ flex: 1 }}><Text style={styles.replayTitle}>{state.replay.name}</Text>
             <Text style={styles.replayTime}>{Math.floor(state.replay.positionMs / 1000)} / {Math.floor(state.replay.durationMs / 1000)} s</Text></View>
-          <Pressable accessibilityRole="button" accessibilityLabel={state.replay.paused ? "Reanudar grabación" : "Pausar grabación"}
+          <Pressable accessibilityRole="button" accessibilityLabel={t(state.replay.paused ? "Reanudar grabación" : "Pausar grabación")}
             onPress={plantSession.toggleReplayPause}><Icon name={state.replay.paused ? "play" : "pause"} size={20} /></Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel="Detener reproducción" onPress={plantSession.stopReplay}>
+          <Pressable accessibilityRole="button" accessibilityLabel={t('Detener reproducción')} onPress={plantSession.stopReplay}>
             <Icon name="close" size={20} /></Pressable>
         </View>}
         <View style={styles.actions}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Grabar vídeo con cámara y señal" onPress={() => router.push("/video" as Href)} style={styles.roundButton}>
+          <Pressable accessibilityRole="button" accessibilityLabel={t('Grabar vídeo con cámara y señal')} onPress={() => router.push("/video" as Href)} style={styles.roundButton}>
             <Icon name="camera" size={21} color={colors.ink} />
           </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel="Información musical"
+          <Pressable accessibilityRole="button" accessibilityLabel={t('Información musical')}
             onPress={() => router.push("/mood-info" as Href)} style={styles.roundButton}>
             <Icon name="info" size={21} color={colors.ink} />
           </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel="Editar mood"
+          <Pressable accessibilityRole="button" accessibilityLabel={t('Editar mood')}
             onPress={() => router.push("/mood-edit" as Href)} style={styles.roundButton}>
             <Icon name="edit" size={20} color={colors.ink} />
           </Pressable>
           <View style={{ flex: 1 }} />
-          <Pressable accessibilityRole="button" accessibilityLabel={state.recording ? "Detener grabación" : "Iniciar grabación"}
+          <Pressable accessibilityRole="button" accessibilityLabel={t(state.recording ? "Detener grabación" : "Iniciar grabación")}
             accessibilityState={{ disabled: !state.recording && (!bluetoothConnected || state.signal !== "live") }}
             disabled={!state.recording && (!bluetoothConnected || state.signal !== "live")}
             onPress={() => state.recording ? plantSession.stopRecording() : openRecordName()}
@@ -129,18 +132,18 @@ export default function HomeScreen() {
               state.recording && styles.recordingButton]}>
             <Icon name="record" size={17} color={state.recording ? colors.amber : colors.ink} />
           </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel={state.replay?.paused ? "Reproducción en pausa" : !state.audioReady && connected ? "Preparando música" : state.playing ? "Silenciar música" : "Reanudar música"}
+          <Pressable accessibilityRole="button" accessibilityLabel={t(state.replay?.paused ? "Reproducción en pausa" : !state.audioReady && connected ? "Preparando música" : state.playing ? "Silenciar música" : "Reanudar música")}
             accessibilityState={{ disabled: !state.audioReady || !!state.replay?.paused }} disabled={!state.audioReady || !!state.replay?.paused}
             onPress={plantSession.togglePlayback} style={[styles.roundButton, (!state.audioReady || !!state.replay?.paused) && styles.disabled]}>
             <Icon name="sound" muted={!state.playing} size={21} color={colors.ink} />
           </Pressable>
         </View>
-        <Pressable accessibilityRole="button" accessibilityLabel={`Cambiar mood. Actual: ${mood.name}`}
+        <Pressable accessibilityRole="button" accessibilityLabel={`${t('Cambiar mood. Actual:')} ${moodName(mood.id, mood.name, language)}`}
           onPress={() => router.push("/moods" as Href)} style={[styles.moodCard, { backgroundColor: palette.deep }]}>
           <View style={styles.moodCopy}>
             <Text style={[styles.moodKicker, { color: palette.wash }]}>MOOD</Text>
-            <Text style={styles.moodName}>{mood.name}</Text>
-            <Text numberOfLines={2} style={styles.moodDescription}>{mood.description}</Text>
+            <Text style={styles.moodName}>{moodName(mood.id, mood.name, language)}</Text>
+            <Text numberOfLines={2} style={styles.moodDescription}>{moodDescription(mood.id, mood.description, language)}</Text>
           </View>
           <View style={styles.moodMark}><WaveMark color={palette.accent} width={94} /></View>
           <Icon name="chevron" size={18} color={palette.wash} />
@@ -151,9 +154,20 @@ export default function HomeScreen() {
       <Pressable style={styles.menuBackdrop} onPress={() => setMenuOpen(false)}>
         <Pressable style={styles.menuPanel} onPress={() => {}}>
           <Text style={styles.menuKicker}>SAVIASOUND</Text>
-          <Text style={styles.menuHeading}>Tu espacio</Text>
+          <Text style={styles.menuHeading}>{t('Tu espacio')}</Text>
           <Pressable accessibilityRole="button" onPress={() => { setMenuOpen(false); router.push("/recordings" as Href); }} style={styles.menuRow}>
-            <Icon name="wave" size={20} /><Text style={styles.menuRowText}>Grabaciones</Text><Icon name="chevron" size={16} />
+            <Icon name="wave" size={20} /><Text style={styles.menuRowText}>{t('Grabaciones')}</Text><Icon name="chevron" size={16} />
+          </Pressable>
+          <Pressable accessibilityRole="button" onPress={() => { setMenuOpen(false); router.push("/settings" as Href); }} style={styles.menuRow}>
+            <Icon name="sliders" size={20} /><Text style={styles.menuRowText}>{t('Ajustes')}</Text><Icon name="chevron" size={16} />
+          </Pressable>
+          <Pressable accessibilityRole="link" onPress={() => { setMenuOpen(false); void Linking.openURL(`https://saviasound.com/${language}`); }} style={styles.menuRow}>
+            <Icon name="info" size={20} />
+            <View style={styles.menuSupportCopy}>
+              <Text style={styles.menuSupportTitle}>{t('Soporte')}</Text>
+              <Text style={styles.menuSupportHint}>{t('¿Tienes algún problema? Contáctanos en')} saviasound.com/{language}</Text>
+            </View>
+            <Icon name="chevron" size={16} />
           </Pressable>
         </Pressable>
       </Pressable>
@@ -161,14 +175,14 @@ export default function HomeScreen() {
     <Modal visible={nameOpen} transparent animationType="fade" onRequestClose={() => setNameOpen(false)}>
       <View style={styles.backdrop}>
         <View style={styles.infoCard}>
-          <Text style={styles.infoTitle}>Nueva grabación</Text>
-          <Text style={styles.infoCopy}>Ponle un nombre. Se guardarán los datos de la planta durante un máximo de {MAX_RECORDING_MINUTES} minutos.</Text>
+          <Text style={styles.infoTitle}>{t('Nueva grabación')}</Text>
+          <Text style={styles.infoCopy}>{t('Ponle un nombre. Se guardarán los datos de la planta durante un máximo de')} {MAX_RECORDING_MINUTES} {t('minutos.')}</Text>
           <TextInput value={recordingName} onChangeText={setRecordingName} maxLength={70} selectTextOnFocus
-            accessibilityLabel="Nombre de la grabación" style={styles.nameInput} />
+            accessibilityLabel={t('Nombre de la grabación')} style={styles.nameInput} />
           <View style={styles.dialogActions}>
-            <Pressable onPress={() => setNameOpen(false)}><Text style={styles.secondaryText}>Cancelar</Text></Pressable>
+            <Pressable onPress={() => setNameOpen(false)}><Text style={styles.secondaryText}>{t('Cancelar')}</Text></Pressable>
             <Pressable onPress={() => { plantSession.startRecording(recordingName); setNameOpen(false); }} style={styles.dialogPrimary}>
-              <Text style={styles.primaryText}>Grabar</Text>
+              <Text style={styles.primaryText}>{t('Grabar')}</Text>
             </Pressable>
           </View>
         </View>
@@ -178,12 +192,12 @@ export default function HomeScreen() {
       <Pressable style={styles.backdrop} onPress={() => setOpenReading(null)}>
         <Pressable style={styles.infoCard} onPress={() => {}}>
           <View style={styles.infoHeading}>
-            <Text style={styles.infoTitle}>{openReading?.title}</Text>
-            <Pressable accessibilityRole="button" accessibilityLabel="Cerrar explicación" onPress={() => setOpenReading(null)} style={styles.infoClose}>
+            <Text style={styles.infoTitle}>{t(openReading?.title ?? '')}</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel={t('Cerrar explicación')} onPress={() => setOpenReading(null)} style={styles.infoClose}>
               <Icon name="close" size={18} color={colors.ink} />
             </Pressable>
           </View>
-          <Text style={styles.infoCopy}>{openReading?.explanation}</Text>
+          <Text style={styles.infoCopy}>{t(openReading?.explanation ?? '')}</Text>
         </Pressable>
       </Pressable>
     </Modal>
@@ -232,6 +246,9 @@ const styles = StyleSheet.create({
   menuHeading: { color: colors.ink, fontSize: 30, marginTop: 12, marginBottom: 32 },
   menuRow: { minHeight: 60, flexDirection: "row", alignItems: "center", gap: 15, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
   menuRowText: { color: colors.ink, fontSize: 15, flex: 1 },
+  menuSupportCopy: { flex: 1, paddingVertical: 12 },
+  menuSupportTitle: { color: colors.ink, fontSize: 15 },
+  menuSupportHint: { color: colors.muted, fontSize: 11, lineHeight: 16, marginTop: 4 },
   nameInput: { color: colors.ink, borderBottomWidth: 1, borderBottomColor: colors.green, paddingVertical: 12, fontSize: 16 },
   dialogActions: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 22, marginTop: 8 },
   dialogPrimary: { backgroundColor: colors.forest, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 20 },

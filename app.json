@@ -13,6 +13,7 @@
       "buildNumber": "2",
       "infoPlist": {
         "NSPhotoLibraryAddUsageDescription": "saviasound necesita permiso para guardar tus vídeos en Fotos.",
+        "CFBundleAllowMixedLocalizations": true,
         "ITSAppUsesNonExemptEncryption": false
       }
     },
@@ -98,11 +99,24 @@
             "android.permission.POST_NOTIFICATIONS"
           ]
         }
+      ],
+      [
+        "expo-localization",
+        {
+          "supportedLocales": {
+            "ios": ["es", "en"],
+            "android": ["es", "en"]
+          }
+        }
       ]
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "locales": {
+      "en": "./locales/en.json",
+      "es": "./locales/es.json"
     },
     "extra": {
       "router": {},

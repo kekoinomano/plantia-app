@@ -1,4 +1,5 @@
 import { useIsFocused } from 'expo-router';
+import { useTranslation } from '@/lib/i18n';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -27,6 +28,7 @@ const NO_POINTS: SignalPoint[] = [];
 export const SignalChart = memo(function SignalChart({ points = NO_POINTS, live, waiting, timing = INITIAL_SIGNAL_TIMING, stream = false, accent = colors.green }: {
   points?: SignalPoint[]; live: boolean; waiting: boolean; timing?: SignalTiming; stream?: boolean; accent?: string;
 }) {
+  const { t } = useTranslation();
   const [layoutWidth, setLayoutWidth] = useState(WIDTH);
   const [windowMs, setWindowMs] = useState(SIGNAL_WINDOW_MS);
   const shape = useSharedValue(EMPTY), clock = useSharedValue(0);
@@ -200,8 +202,8 @@ export const SignalChart = memo(function SignalChart({ points = NO_POINTS, live,
   return <View style={styles.container}>
     <GestureDetector gesture={pinch}>
     <View style={styles.plot} accessible accessibilityRole="image"
-      accessibilityLabel={`Señal de tu planta. ${windowMs / 1000} segundos visibles. Escala vertical automática.`}
-      accessibilityHint="Junta o separa dos dedos para cambiar el tiempo visible">
+      accessibilityLabel={`${t('Señal de tu planta.')} ${windowMs / 1000} ${t('segundos visibles. Escala vertical automática.')}`}
+      accessibilityHint={t('Junta o separa dos dedos para cambiar el tiempo visible')}>
       <View pointerEvents="none" onLayout={event => setLayoutWidth(event.nativeEvent.layout.width)} style={StyleSheet.absoluteFill}>
         <View style={styles.midline} />
         <View style={[styles.viewport, { width: layoutWidth * PLOT_RIGHT / WIDTH }]}>
@@ -220,8 +222,8 @@ export const SignalChart = memo(function SignalChart({ points = NO_POINTS, live,
     </View>
     </GestureDetector>
     <View style={styles.captionRow}>
-      <Text style={styles.caption}>SEÑAL VIVA · AUTO</Text>
-      <Text style={styles.caption}>{(windowMs / 1000).toFixed(windowMs % 1000 ? 1 : 0)} S · PINZA PARA AJUSTAR</Text>
+      <Text style={styles.caption}>{t('SEÑAL VIVA · AUTO')}</Text>
+      <Text style={styles.caption}>{(windowMs / 1000).toFixed(windowMs % 1000 ? 1 : 0)} S · {t('PINZA PARA AJUSTAR')}</Text>
     </View>
   </View>;
 });

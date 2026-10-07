@@ -1,4 +1,5 @@
 import { useRouter } from 'expo-router';
+import { useTranslation, dateLocale } from '@/lib/i18n';
 import { useRef, useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -8,10 +9,12 @@ import { deleteRecording, listRecordings, renameRecording, type SavedRecording }
 import { plantSession, usePlantControls } from '@/lib/plant-session';
 import { exportRecordingMp3, shareMp3 } from '@/lib/recording-export';
 import { PROFILES, type ProfileId } from '@/lib/sonora/focus';
+import { moodName } from '@/lib/mood-copy';
 
 const duration = (ms: number) => `${Math.floor(ms / 60_000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
 
 export default function RecordingsScreen() {
+  const { language, t } = useTranslation();
   const router = useRouter();
   const state = usePlantControls();
   const [items, setItems] = useState<SavedRecording[]>(() => listRecordings());
@@ -31,9 +34,9 @@ export default function RecordingsScreen() {
       router.back();
     } catch (problem) { setError(problem instanceof Error ? problem.message : 'No se pudo reproducir.'); }
   };
-  const remove = (item: SavedRecording) => Alert.alert('Eliminar grabación', `¿Eliminar «${item.name}»? Esta acción no se puede deshacer.`, [
-    { text: 'Cancelar', style: 'cancel' },
-    { text: 'Eliminar', style: 'destructive', onPress: () => {
+  const remove = (item: SavedRecording) => Alert.alert(t('Eliminar grabación'), `${t('¿Eliminar')} «${item.name}»? ${t('Esta acción no se puede deshacer.')}`, [
+    { text: t('Cancelar'), style: 'cancel' },
+    { text: t('Eliminar'), style: 'destructive', onPress: () => {
       if (state.replay?.id === item.id) plantSession.stopReplay();
       deleteRecording(item.id); refresh();
     } },
@@ -57,36 +60,36 @@ export default function RecordingsScreen() {
 
   return <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
     <View style={styles.header}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Volver" onPress={() => router.back()} style={styles.back}>
+      <Pressable accessibilityRole="button" accessibilityLabel={t('Volver')} onPress={() => router.back()} style={styles.back}>
         <Icon name="back" size={20} />
       </Pressable>
-      <Text style={styles.headerTitle}>Grabaciones</Text>
+      <Text style={styles.headerTitle}>{t('Grabaciones')}</Text>
       <View style={{ width: 42 }} />
     </View>
     <ScrollView contentContainerStyle={styles.content}>
-      <Text style={styles.kicker}>TU ARCHIVO</Text>
-      <Text style={styles.title}>Escucha de nuevo.</Text>
-      <Text style={styles.intro}>Tus plantas, guardadas en este teléfono. Reprodúcelas con cualquier mood o llévate su música en MP3.</Text>
-      {error && <Pressable onPress={() => setError(null)} style={styles.error}><Text style={styles.errorText}>{error}</Text><Icon name="close" size={15} color={colors.amber} /></Pressable>}
+      <Text style={styles.kicker}>{t('TU ARCHIVO')}</Text>
+      <Text style={styles.title}>{t('Escucha de nuevo.')}</Text>
+      <Text style={styles.intro}>{t('Tus grabaciones, guardadas en este teléfono. Reprodúcelas con cualquier mood o llévate su música en MP3.')}</Text>
+      {error && <Pressable onPress={() => setError(null)} style={styles.error}><Text style={styles.errorText}>{t(error)}</Text><Icon name="close" size={15} color={colors.amber} /></Pressable>}
       {!items.length && <View style={styles.empty}><Icon name="wave" size={28} color={colors.muted} />
-        <Text style={styles.emptyTitle}>Todavía no hay grabaciones</Text>
-        <Text style={styles.emptyCopy}>Conecta la planta y pulsa Rec cuando llegue su señal.</Text>
+        <Text style={styles.emptyTitle}>{t('Todavía no hay grabaciones')}</Text>
+        <Text style={styles.emptyCopy}>{t('Conecta tu dispositivo saviasound y pulsa Rec cuando llegue la señal de la planta.')}</Text>
       </View>}
       {items.map(item => <View key={item.id} style={styles.card}>
         <View style={styles.cardTop}>
           <View style={{ flex: 1 }}><Text style={styles.cardName}>{item.name}</Text>
-            <Text style={styles.meta}>{new Date(item.startedAt).toLocaleDateString('es-ES')} · {duration(item.durationMs)} · {item.packets} paquetes</Text></View>
-          <Pressable accessibilityRole="button" accessibilityLabel={`Renombrar ${item.name}`}
+            <Text style={styles.meta}>{new Date(item.startedAt).toLocaleDateString(dateLocale(language))} · {duration(item.durationMs)} · {item.packets} {t('paquetes')}</Text></View>
+          <Pressable accessibilityRole="button" accessibilityLabel={`${t('Renombrar')} ${item.name}`}
             onPress={() => { setRename(item); setName(item.name); }} style={styles.smallButton}><Icon name="edit" size={17} /></Pressable>
         </View>
         <View style={styles.cardActions}>
           <Pressable onPress={() => void play(item)} style={styles.playButton} accessibilityRole="button">
-            <Icon name="play" size={16} color={colors.paper} /><Text style={styles.playText}>Reproducir</Text>
+            <Icon name="play" size={16} color={colors.paper} /><Text style={styles.playText}>{t('Reproducir')}</Text>
           </Pressable>
           <Pressable onPress={() => { setSelectedMood(state.config.profile); setExportItem(item); }} style={styles.exportButton} accessibilityRole="button">
             <Icon name="download" size={16} /><Text style={styles.exportText}>MP3</Text>
           </Pressable>
-          <Pressable onPress={() => remove(item)} accessibilityRole="button" accessibilityLabel={`Eliminar ${item.name}`} style={styles.smallButton}>
+          <Pressable onPress={() => remove(item)} accessibilityRole="button" accessibilityLabel={`${t('Eliminar')} ${item.name}`} style={styles.smallButton}>
             <Icon name="trash" size={17} color={colors.muted} />
           </Pressable>
         </View>
@@ -94,12 +97,12 @@ export default function RecordingsScreen() {
     </ScrollView>
     <Modal visible={rename !== null} transparent animationType="fade" onRequestClose={() => setRename(null)}>
       <View style={styles.backdrop}><View style={styles.dialog}>
-        <Text style={styles.dialogTitle}>Cambiar nombre</Text>
-        <TextInput value={name} onChangeText={setName} maxLength={70} style={styles.input} accessibilityLabel="Nombre de la grabación" />
+        <Text style={styles.dialogTitle}>{t('Cambiar nombre')}</Text>
+        <TextInput value={name} onChangeText={setName} maxLength={70} style={styles.input} accessibilityLabel={t('Nombre de la grabación')} />
         <View style={styles.dialogActions}>
-          <Pressable onPress={() => setRename(null)}><Text style={styles.cancel}>Cancelar</Text></Pressable>
+          <Pressable onPress={() => setRename(null)}><Text style={styles.cancel}>{t('Cancelar')}</Text></Pressable>
           <Pressable onPress={() => { if (rename && name.trim()) { renameRecording(rename.id, name); refresh(); setRename(null); } }} style={styles.confirm}>
-            <Text style={styles.confirmText}>Guardar</Text>
+            <Text style={styles.confirmText}>{t('Guardar')}</Text>
           </Pressable>
         </View>
       </View></View>
@@ -107,26 +110,26 @@ export default function RecordingsScreen() {
     <Modal visible={exportItem !== null} transparent animationType="slide" onRequestClose={() => { if (progress === null) setExportItem(null); }}>
       <View style={styles.sheetBackdrop}><View style={styles.sheet}>
         <View style={styles.handle} />
-        <Text style={styles.kicker}>EXPORTAR MP3</Text>
+        <Text style={styles.kicker}>{t('EXPORTAR MP3')}</Text>
         <Text style={styles.dialogTitle}>{exportItem?.name}</Text>
-        <Text style={styles.sheetCopy}>Elige el mood que sonará durante toda la grabación. El archivo se creará en este teléfono.</Text>
+        <Text style={styles.sheetCopy}>{t('Elige el mood que sonará durante toda la grabación. El archivo se creará en este teléfono.')}</Text>
         <ScrollView style={styles.moods} contentContainerStyle={{ gap: 9 }}>
           {PROFILES.map(mood => <Pressable key={mood.id} onPress={() => setSelectedMood(mood.id)}
             accessibilityRole="radio" accessibilityState={{ checked: selectedMood === mood.id }}
             style={[styles.moodOption, selectedMood === mood.id && { borderColor: moodPalette(mood.id).accent, backgroundColor: moodPalette(mood.id).wash }]}>
             <View style={[styles.moodDot, { backgroundColor: moodPalette(mood.id).accent }]} />
-            <Text style={styles.moodName}>{mood.name}</Text>{selectedMood === mood.id && <Icon name="check" size={17} />}
+            <Text style={styles.moodName}>{moodName(mood.id, mood.name, language)}</Text>{selectedMood === mood.id && <Icon name="check" size={17} />}
           </Pressable>)}
         </ScrollView>
-        {progress !== null && <Text style={styles.progress}>Creando MP3… {Math.round(progress * 100)} %</Text>}
-        {(state.connection !== 'idle' || !!state.replay) && <Text style={styles.warning}>Detén la sesión actual antes de exportar para dejar libre el motor de audio.</Text>}
+        {progress !== null && <Text style={styles.progress}>{t('Creando MP3…')} {Math.round(progress * 100)} %</Text>}
+        {(state.connection !== 'idle' || !!state.replay) && <Text style={styles.warning}>{t('Detén la sesión actual antes de exportar para dejar libre el motor de audio.')}</Text>}
         <View style={styles.dialogActions}>
           <Pressable onPress={() => progress !== null ? exportController.current?.abort() : setExportItem(null)}>
-            <Text style={styles.cancel}>{progress !== null ? 'Cancelar exportación' : 'Cancelar'}</Text>
+            <Text style={styles.cancel}>{t(progress !== null ? 'Cancelar exportación' : 'Cancelar')}</Text>
           </Pressable>
           <Pressable disabled={progress !== null || state.connection !== 'idle' || !!state.replay} onPress={() => void exportMp3()}
             style={[styles.confirm, (progress !== null || state.connection !== 'idle' || !!state.replay) && { opacity: .4 }]}>
-            <Text style={styles.confirmText}>Crear y guardar</Text>
+            <Text style={styles.confirmText}>{t('Crear y guardar')}</Text>
           </Pressable>
         </View>
       </View></View>

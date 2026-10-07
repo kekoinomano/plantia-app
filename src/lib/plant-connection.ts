@@ -39,7 +39,7 @@ export class PlantConnection {
         : [PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION];
     const result = await PermissionsAndroid.requestMultiple(required);
     if (required.some((p) => result[p] !== PermissionsAndroid.RESULTS.GRANTED)) {
-      throw new Error("Permite el acceso a Bluetooth para conectar tu planta.");
+      throw new Error("Permite el acceso a Bluetooth para conectar tu dispositivo saviasound.");
     }
     this.authorized = true;
   }
@@ -67,7 +67,7 @@ export class PlantConnection {
             new Error(
               state === State.Unauthorized
                 ? "Permite Bluetooth en los ajustes del teléfono."
-                : "Activa Bluetooth para conectar tu planta.",
+                : "Activa Bluetooth para conectar tu dispositivo saviasound.",
             ),
           );
         }

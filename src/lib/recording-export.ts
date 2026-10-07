@@ -7,6 +7,7 @@ import { WaveComposer } from './wave-music/composer';
 import { SampleBank } from './audio/bank';
 import { NativePcmCore } from './audio/native-pcm';
 import type { Event } from './sonora/music-types';
+import { t } from './i18n';
 
 const RATE = 44_100;
 const CHUNK = RATE; // One second per bridge call; Sonora still renders internally in 4096-frame blocks.
@@ -55,7 +56,7 @@ export async function exportRecordingMp3(id: string, configuration: Configuratio
   const core = new NativePcmCore(RATE, config, bank, true);
   const folder = new Directory(Paths.cache, 'recording-exports');
   folder.create({ idempotent: true, intermediates: true });
-  const safeName = recording.session.name.replace(/[^\p{L}\p{N} _-]/gu, '').trim().slice(0, 60) || 'Grabación';
+  const safeName = recording.session.name.replace(/[^\p{L}\p{N} _-]/gu, '').trim().slice(0, 60) || t('Grabación');
   const output = new File(folder, `${safeName}-${profile}-${id}.mp3`);
   let started = false, finished = false;
   try {

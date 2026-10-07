@@ -1,4 +1,5 @@
 import { Stack, useRouter } from 'expo-router';
+import { useTranslation } from '@/lib/i18n';
 import { useCameraPermissions } from 'expo-camera';
 import { StatusBar } from 'expo-status-bar';
 import * as Sharing from 'expo-sharing';
@@ -14,6 +15,7 @@ import { profile } from '@/lib/sonora/focus';
 import { SaviasoundCamera, videoCapture } from '@/lib/video-capture';
 import { MAX_RECORDING_MINUTES } from '@/lib/recordings';
 import { getWaveInspection, subscribeWaveInspection } from '@/lib/wave-music/inspection';
+import { moodName } from '@/lib/mood-copy';
 
 type Phase = 'idle' | 'starting' | 'recording' | 'saving';
 
@@ -34,6 +36,7 @@ function publishVideoOverlay(mood: string, color: string) {
 }
 
 export default function VideoScreen() {
+  const { language, t } = useTranslation();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const state = usePlantControls();
@@ -88,10 +91,10 @@ export default function VideoScreen() {
 
   useEffect(() => {
     if (!permission?.granted || phase !== 'recording') return;
-    const update = () => publishVideoOverlay(mood.name, palette.wash);
+    const update = () => publishVideoOverlay(moodName(mood.id, mood.name, language), palette.wash);
     update();
     return plantSession.subscribeGraph(update);
-  }, [permission?.granted, mood.name, palette.wash, phase]);
+  }, [permission?.granted, mood.name, palette.wash, phase, language]);
 
   useEffect(() => {
     if (phase !== 'recording') return;
@@ -157,7 +160,7 @@ export default function VideoScreen() {
     setPhase('starting');
     let cameraStarted = false;
     try {
-      publishVideoOverlay(mood.name, palette.wash);
+      publishVideoOverlay(moodName(mood.id, mood.name, language), palette.wash);
       await videoCapture.start(plantSession.getVideoSampleRate());
       cameraStarted = true;
       stopAudio.current = plantSession.captureVideoAudio(videoCapture.appendAudio);
@@ -205,31 +208,31 @@ export default function VideoScreen() {
       <View style={styles.signalContent}>
         <View style={styles.signalHeader}>
           <Image source={require('../../assets/images/saviasound-logo.png')} style={styles.signalBrand} resizeMode="contain" />
-          <View style={styles.signalLive}><View style={[styles.signalDot, { backgroundColor: palette.wash }]} /><Text style={styles.signalLiveText}>SEÑAL VIVA</Text></View>
+          <View style={styles.signalLive}><View style={[styles.signalDot, { backgroundColor: palette.wash }]} /><Text style={styles.signalLiveText}>{t('SEÑAL VIVA')}</Text></View>
         </View>
         <View style={styles.signalGraph} onLayout={event => setPlotHeight(event.nativeEvent.layout.height)}>
           <View style={{ height: 170, transform: [{ scaleY: plotHeight / 170 }], transformOrigin: 'top left' }}>
             <SignalChart stream live={state.signal === 'live'} waiting={state.connection === 'connected'} accent={palette.wash} />
           </View>
         </View>
-        <Text style={[styles.signalMood, { bottom: Math.max(insets.bottom, 12) + 8 }]}>{mood.name.toUpperCase()}</Text>
+        <Text style={[styles.signalMood, { bottom: Math.max(insets.bottom, 12) + 8 }]}>{moodName(mood.id, mood.name, language).toUpperCase()}</Text>
       </View>
     </Animated.View>}
     <SafeAreaView style={styles.safe}>
       <View style={styles.top}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Volver" disabled={phase !== 'idle'} onPress={() => router.back()} style={styles.back}>
+        <Pressable accessibilityRole="button" accessibilityLabel={t('Volver')} disabled={phase !== 'idle'} onPress={() => router.back()} style={styles.back}>
           <Icon name="back" size={20} color="#FFFFFF" />
         </Pressable>
       </View>
       <View style={styles.space} />
-      {message && <View style={styles.message}><Text style={styles.messageText}>{message}</Text></View>}
+      {message && <View style={styles.message}><Text style={styles.messageText}>{t(message)}</Text></View>}
       {!permission?.granted ? <Pressable style={styles.permissionButton} onPress={() => void requestCameraPermission()}>
-        <Text style={styles.permissionText}>Permitir cámara</Text>
+        <Text style={styles.permissionText}>{t('Permitir cámara')}</Text>
       </Pressable> : <>
-        {phase !== 'idle' && <Text style={styles.timer}>{recording ? `● REC  ${formatTime(seconds)}` : phase === 'saving' ? 'CREANDO MP4…' : 'PREPARANDO…'}</Text>}
+        {phase !== 'idle' && <Text style={styles.timer}>{recording ? `● REC  ${formatTime(seconds)}` : t(phase === 'saving' ? 'CREANDO MP4…' : 'PREPARANDO…')}</Text>}
         <View style={styles.controls}>
           <View style={styles.controlSide} />
-          <Pressable accessibilityRole="button" accessibilityLabel={recording ? 'Detener vídeo' : 'Grabar vídeo'}
+          <Pressable accessibilityRole="button" accessibilityLabel={t(recording ? 'Detener vídeo' : 'Grabar vídeo')}
             accessibilityState={{ disabled: phase !== 'recording' && !ready }}
             disabled={phase === 'saving' || phase === 'starting' || (phase === 'idle' && !ready)}
             onPress={() => void (recording ? stop() : start())}
@@ -238,10 +241,10 @@ export default function VideoScreen() {
           </Pressable>
           <View style={styles.controlSide} />
         </View>
-        {!ready && phase === 'idle' && <Text style={styles.hint}>Conecta la planta y activa su música para grabar.</Text>}
+        {!ready && phase === 'idle' && <Text style={styles.hint}>{t('Conecta tu dispositivo saviasound y activa la música para grabar.')}</Text>}
         {lastVideo && phase === 'idle' && <View style={styles.resultActions}>
-          <Pressable style={styles.resultButton} onPress={() => void save()}><Text style={styles.resultText}>Guardar en Fotos</Text></Pressable>
-          <Pressable style={styles.resultButton} onPress={() => void share()}><Text style={styles.resultText}>Compartir MP4</Text></Pressable>
+          <Pressable style={styles.resultButton} onPress={() => void save()}><Text style={styles.resultText}>{t('Guardar en Fotos')}</Text></Pressable>
+          <Pressable style={styles.resultButton} onPress={() => void share()}><Text style={styles.resultText}>{t('Compartir MP4')}</Text></Pressable>
         </View>}
       </>}
     </SafeAreaView>

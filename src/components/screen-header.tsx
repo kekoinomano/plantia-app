@@ -3,11 +3,13 @@ import { useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Icon } from "./plant-icon";
 import { colors } from "./saviasound-theme";
+import { useTranslation } from "@/lib/i18n";
 
 export function ScreenHeader({ title, action }: { title: string; action?: ReactNode }) {
+  const { t } = useTranslation();
   const router = useRouter();
   return <View style={styles.header}>
-    <Pressable accessibilityRole="button" accessibilityLabel="Volver" onPress={() => router.back()} style={styles.button}>
+    <Pressable accessibilityRole="button" accessibilityLabel={t("Volver")} onPress={() => router.back()} style={styles.button}>
       <Icon name="back" size={20} />
     </Pressable>
     <Text style={styles.title}>{title}</Text>

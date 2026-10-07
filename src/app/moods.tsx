@@ -1,4 +1,5 @@
 import { useRouter } from "expo-router";
+import { useTranslation } from '@/lib/i18n';
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ScreenHeader } from "@/components/screen-header";
@@ -7,23 +8,25 @@ import { WaveMark } from "@/components/saviasound-visuals";
 import { colors, moodPalette } from "@/components/saviasound-theme";
 import { plantSession, usePlantControls } from "@/lib/plant-session";
 import { PROFILES } from "@/lib/sonora/focus";
+import { moodName, moodDescription } from '@/lib/mood-copy';
 
 export default function MoodsScreen() {
+  const { language, t } = useTranslation();
   const router = useRouter();
   const state = usePlantControls();
   return <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
-    <ScreenHeader title="Moods" />
+    <ScreenHeader title={t('Moods')} />
     <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      <Text style={styles.intro}>Cada mood escucha la misma señal, pero organiza el tiempo, las voces y el espacio de una forma distinta.</Text>
+      <Text style={styles.intro}>{t('Cada mood escucha la misma señal, pero organiza el tiempo, las voces y el espacio de una forma distinta.')}</Text>
       {PROFILES.map(mood => {
         const palette = moodPalette(mood.id), selected = mood.id === state.config.profile;
         return <Pressable key={mood.id} accessibilityRole="button" accessibilityState={{ selected }}
           onPress={() => { plantSession.selectProfile(mood.id); router.back(); }}
           style={[styles.card, { backgroundColor: palette.deep }]}>
           <View style={{ flex: 1, zIndex: 1 }}>
-            <Text style={[styles.label, { color: palette.wash }]}>{selected ? "EN ESCUCHA" : "MOOD"}</Text>
-            <Text style={styles.name}>{mood.name}</Text>
-            <Text style={styles.description}>{mood.description}</Text>
+            <Text style={[styles.label, { color: palette.wash }]}>{t(selected ? "EN ESCUCHA" : "MOOD")}</Text>
+            <Text style={styles.name}>{moodName(mood.id, mood.name, language)}</Text>
+            <Text style={styles.description}>{moodDescription(mood.id, mood.description, language)}</Text>
           </View>
           <View style={styles.mark}><WaveMark color={palette.accent} width={110} /></View>
           {selected ? <Icon name="check" color={palette.wash} /> : <Icon name="chevron" color={palette.wash} />}

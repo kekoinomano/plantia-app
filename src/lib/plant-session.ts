@@ -13,6 +13,7 @@ import { SignalTimeline, INITIAL_SIGNAL_TIMING, type ChartPoint, type SignalTimi
 import { MAX_RECORDING_MS, RecordingWriter, type SavedRecording } from "./recordings";
 import { loadRecording } from "./recordings";
 import type { Recording } from "./sonora/signal";
+import { t } from './i18n';
 
 export type SignalPoint = ChartPoint;
 type Reading = { at: number; mean: number; amplitude: number; change: number };
@@ -342,13 +343,13 @@ class PlantSession {
         if (generation !== this.generation) return;
         if (this.snapshot.connection === "scanning" && this.snapshot.devices.length === 0)
           void this.disconnect(
-            "No encuentro ninguna planta. Enciende el sensor, acércalo al teléfono e inténtalo otra vez.",
+            "No encuentro tu dispositivo saviasound. Comprueba que esté encendido, acércalo al teléfono e inténtalo otra vez.",
           );
       }, 25000);
     } catch (error) {
       if (generation !== this.generation) return;
       await this.disconnect(
-        error instanceof Error ? error.message : "No se pudo conectar con la planta.",
+        error instanceof Error ? error.message : "No se pudo conectar con el dispositivo saviasound.",
       );
     }
   };
@@ -403,7 +404,7 @@ class PlantSession {
 
   private handleLostConnection = (generation: number, message?: string) => {
     if (generation !== this.generation) return;
-    void this.disconnect(message ?? "Se ha perdido la conexión con la planta. Acerca el sensor y vuelve a conectar.");
+    void this.disconnect(message ?? "Se ha perdido la conexión con el dispositivo saviasound. Acércalo y vuelve a conectar.");
   };
 
   selectDevice = (id: string) => {
@@ -424,7 +425,7 @@ class PlantSession {
         await this.disconnect(
           error instanceof Error
             ? error.message
-            : "No se pudo conectar con la planta. Inténtalo otra vez.",
+            : "No se pudo conectar con el dispositivo saviasound. Inténtalo otra vez.",
         );
       }
     })();
@@ -514,7 +515,7 @@ class PlantSession {
   startRecording = (name: string) => {
     if (this.writer || this.snapshot.connection !== "connected" || this.snapshot.signal !== "live") return;
     try {
-      this.writer = new RecordingWriter(name.trim() || `Grabación ${Date.now()}`);
+      this.writer = new RecordingWriter(name.trim() || `${t('Grabación')} ${Date.now()}`);
       this.update({ recording: { name: this.writer.name, startedAt: this.writer.startedAt, durationMs: 0 } });
       this.recordingTimer = setTimeout(this.stopRecording, MAX_RECORDING_MS);
     } catch (error) { this.error(error); }
