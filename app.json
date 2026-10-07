@@ -48,6 +48,7 @@
     },
     "plugins": [
       "./plugins/with-android-dev-app",
+      "./plugins/with-ios-dev-app",
       "expo-router",
       "expo-asset",
       "./plugins/with-video-storage",

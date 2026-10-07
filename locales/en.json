@@ -1,6 +1,5 @@
 {
   "ios": {
-    "CFBundleDisplayName": "saviasound",
     "NSPhotoLibraryAddUsageDescription": "saviasound needs permission to save your videos to Photos.",
     "NSCameraUsageDescription": "saviasound needs the camera to record videos with your plant's signal.",
     "NSMicrophoneUsageDescription": "saviasound includes audio features that may request the microphone to capture device sound. Your plant's music comes from the Bluetooth sensor, without using the microphone.",
