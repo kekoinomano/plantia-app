@@ -1,0 +1,27 @@
+APP STORE CONNECT — ENGLISH
+
+Name: saviasound
+Subtitle: Music from your plants
+Version: 1.0.0
+
+Promotional text (optional):
+Hear how your plant's signal inspires music. Connect the saviasound sensor, choose a mood, and enjoy an ever-changing soundscape.
+
+Description:
+Hear your plant in a new way. saviasound receives the signal captured by a compatible physical sensor over Bluetooth and turns it into music.
+
+Connect the sensor, choose from different musical moods, and adjust the volume. Watch your plant's signal change as you listen. The music can keep playing when you lock your screen.
+
+The main feature requires a compatible saviasound physical sensor, sold separately. No account is required.
+
+Keywords (61 bytes; Apple limit: 100):
+plants,music,sound,nature,sensor,bluetooth,ambient,relaxation
+
+Support URL (required): [PENDING: public URL with a way to contact you]
+Marketing URL (optional): [LEAVE BLANK if there is no website]
+Copyright: 2026 [PENDING: legal name of the rights holder]
+
+App Review notes:
+Sign-in required: NO.
+Notes: saviasound's main feature requires a compatible physical saviasound sensor. The user connects it over Bluetooth and the app turns the received signal into music. No account or password is needed. iPhone demonstration video showing connection and playback: [PENDING: link accessible to Apple]. If hardware access is needed, please contact us using the details in this section.
+Contact details: [PENDING: real name, phone number and email]

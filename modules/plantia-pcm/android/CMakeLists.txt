@@ -7,6 +7,9 @@ set(SFIZZ_GIT_SUBMODULE_CHECK OFF CACHE BOOL "" FORCE)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../third_party/sfizz-1.2.3 ${CMAKE_CURRENT_BINARY_DIR}/sfizz)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../third_party/lame-3.100 ${CMAKE_CURRENT_BINARY_DIR}/lame)
 add_library(plantia_pcm SHARED src/main/cpp/Bridge.cpp)
+target_link_options(plantia_pcm PRIVATE
+  "-Wl,-z,max-page-size=16384"
+  "-Wl,-z,common-page-size=16384")
 target_include_directories(plantia_pcm PRIVATE ../cpp ../third_party/sfizz-1.2.3/src)
 target_link_libraries(plantia_pcm PRIVATE sfizz::sfizz plantia_lame m)
 target_compile_features(plantia_pcm PRIVATE cxx_std_17)

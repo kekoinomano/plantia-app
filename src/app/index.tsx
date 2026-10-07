@@ -109,6 +109,9 @@ export default function HomeScreen() {
             <Icon name="close" size={20} /></Pressable>
         </View>}
         <View style={styles.actions}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Grabar vídeo con cámara y señal" onPress={() => router.push("/video" as Href)} style={styles.roundButton}>
+            <Icon name="camera" size={21} color={colors.ink} />
+          </Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Información musical"
             onPress={() => router.push("/mood-info" as Href)} style={styles.roundButton}>
             <Icon name="info" size={21} color={colors.ink} />

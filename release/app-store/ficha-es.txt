@@ -1,0 +1,35 @@
+APP STORE CONNECT — ESPAÑOL
+
+Nombre: saviasound
+Subtítulo: La música de tus plantas
+Versión: 1.0.0
+
+Texto promocional (opcional):
+Escucha cómo la señal de tu planta inspira música. Conecta el sensor saviasound, elige un ambiente y disfruta de una experiencia sonora cambiante.
+
+Descripción:
+Escucha tu planta de una forma nueva. saviasound recibe por Bluetooth la señal captada por un sensor físico compatible y la convierte en música.
+
+Conecta el sensor, elige entre distintos ambientes sonoros y ajusta el volumen. Mientras escuchas, puedes observar cómo cambia la señal de tu planta. La música puede continuar cuando bloqueas la pantalla.
+
+La función principal requiere un sensor físico saviasound compatible, que se adquiere por separado. No necesitas crear una cuenta.
+
+Palabras clave (69 bytes; límite de Apple: 100):
+plantas,musica,sonido,naturaleza,sensor,bluetooth,ambiente,relajacion
+
+URL de soporte (obligatoria): [PENDIENTE: URL pública con una forma de contacto]
+URL de marketing (opcional): [DEJAR VACÍA si no hay web]
+Copyright: 2026 [PENDIENTE: nombre legal del titular de los derechos]
+
+Información para el equipo de revisión:
+Es necesario iniciar sesión: NO.
+Notas: La función principal de saviasound requiere un sensor físico saviasound compatible. El usuario lo conecta por Bluetooth y la aplicación transforma la señal recibida en música. No hay cuenta ni contraseña. Vídeo demostrativo de la conexión y reproducción en un iPhone: [PENDIENTE: enlace público o accesible para Apple]. Si necesitan probarlo con el hardware, contacten con nosotros mediante los datos indicados en esta sección.
+Datos de contacto: [PENDIENTE: nombre, apellidos, teléfono y correo reales]
+
+Otros campos:
+- Encabezado y creatividad de resultados de búsqueda: opcionales; dejar vacíos para este primer lanzamiento.
+- Vista previa en vídeo de la ficha: opcional; dejar vacía.
+- Capturas de pantalla: subir los tres JPG de capturas-iphone en el orden 01, 02, 03.
+- Archivo de cobertura de app de encaminamiento: dejar vacío; saviasound no es una app de navegación.
+- Clip de app, iMessage y Game Center: no configurarlos para esta app.
+- Publicación: seleccionar publicación automática tras la aprobación si quieres salir lo antes posible.

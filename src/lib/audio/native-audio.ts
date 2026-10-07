@@ -37,6 +37,13 @@ export class NativeAudio {
     private onStop: () => void,
   ) {}
 
+  captureVideoAudio(append: (atFrame: number, pcm: Uint8Array) => void) {
+    if (!this.synth || !this.playing) throw new Error('La música debe estar sonando para grabar el vídeo.');
+    return this.synth.captureVideoAudio(append);
+  }
+  setVideoPriority(enabled: boolean) { this.synth?.setVideoPriority(enabled); }
+  get videoSampleRate() { return this.synth?.sampleRate ?? this.context?.sampleRate ?? 48_000; }
+
   start(config: Configuration) {
     this.starting = this.begin(config).catch((error) => {
       console.error("[saviasound PCM] INIT_ERROR", error instanceof Error ? error.message : String(error));

@@ -9,7 +9,12 @@
     "userInterfaceStyle": "light",
     "ios": {
       "icon": "./assets/images/icon.png",
-      "bundleIdentifier": "com.plantia.app"
+      "bundleIdentifier": "com.saviasound.app",
+      "buildNumber": "2",
+      "infoPlist": {
+        "NSPhotoLibraryAddUsageDescription": "saviasound necesita permiso para guardar tus vídeos en Fotos.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -19,7 +24,22 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.plantia.app"
+      "package": "com.saviasound.app",
+      "versionCode": 2,
+      "blockedPermissions": [
+        "android.permission.READ_EXTERNAL_STORAGE"
+      ],
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.POST_NOTIFICATIONS"
+      ]
     },
     "web": {
       "output": "static",
@@ -29,6 +49,16 @@
       "./plugins/with-android-dev-app",
       "expo-router",
       "expo-asset",
+      "./plugins/with-video-storage",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "saviasound necesita la cámara para grabar vídeos con la señal de tu planta.",
+          "microphonePermission": "saviasound incluye funciones de audio que pueden solicitar el micrófono para capturar sonido del dispositivo. La música de tu planta se genera con el sensor Bluetooth, sin usar el micrófono.",
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": false
+        }
+      ],
       "react-native-zip-archive",
       [
         "expo-splash-screen",
@@ -44,7 +74,9 @@
         {
           "isBackgroundEnabled": true,
           "neverForLocation": true,
-          "modes": ["central"],
+          "modes": [
+            "central"
+          ],
           "bluetoothAlwaysPermission": "saviasound utiliza Bluetooth para escuchar la señal de tu planta, también con la pantalla apagada."
         }
       ],
@@ -54,7 +86,10 @@
         {
           "iosBackgroundMode": true,
           "androidForegroundService": true,
-          "androidFSTypes": ["mediaPlayback", "connectedDevice"],
+          "androidFSTypes": [
+            "mediaPlayback",
+            "connectedDevice"
+          ],
           "androidPermissions": [
             "android.permission.FOREGROUND_SERVICE",
             "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
@@ -68,6 +103,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "3c3dbd3d-0825-4e94-8eda-b9f9ef65455f"
+      }
+    },
+    "owner": "kekotron"
   }
 }

@@ -618,6 +618,12 @@ class PlantSession {
   waitForAudioIdle = async () => { await this.replayClosing; };
   preview = (slot: string) => this.audio?.preview(slot);
   clearError = () => this.update({ error: null });
+  captureVideoAudio = (append: (atFrame: number, pcm: Uint8Array) => void) => {
+    if (!this.audio) throw new Error('La música debe estar sonando para grabar el vídeo.');
+    return this.audio.captureVideoAudio(append);
+  };
+  getVideoSampleRate = () => this.audio?.videoSampleRate ?? 48_000;
+  setVideoAudioPriority = (enabled: boolean) => this.audio?.setVideoPriority(enabled);
 }
 
 export const plantSession = new PlantSession();

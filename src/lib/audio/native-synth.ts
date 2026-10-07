@@ -38,6 +38,7 @@ export class NativeSynth {
   private quietSeconds = 0;
   private reserve = MIN_RESERVE;
   private minimumReserve = MIN_RESERVE;
+  private videoPriority = false;
   private peak = 0;
   private lastLog = 0;
   private lastPacket = 0;
@@ -47,6 +48,8 @@ export class NativeSynth {
   private lastRenderMs = 0;
   private frames: number;
   private blockSeconds: number;
+  private recentAudio: { playAt: number; offset: number; left: Float32Array; right: Float32Array }[] = [];
+  private videoAudio: { startedAt: number; append: (atFrame: number, pcm: Uint8Array) => void } | null = null;
 
   constructor(
     private context: AudioContext,
@@ -145,6 +148,7 @@ export class NativeSynth {
 
   private newQueue() {
     this.disposeQueue();
+    this.recentAudio = [];
     const source = this.context.createBufferQueueSource({ pitchCorrection: false });
     source.connect(this.output);
     // Notifications only wake the producer. Queue duration is derived from the
@@ -155,6 +159,35 @@ export class NativeSynth {
       else this.pump();
     };
     this.source = source;
+  }
+
+  get sampleRate() { return this.context.sampleRate; }
+
+  setVideoPriority(enabled: boolean) {
+    this.videoPriority = enabled;
+    this.minimumReserve = enabled ? MAX_RESERVE : MIN_RESERVE;
+    this.reserve = Math.max(this.reserve, this.minimumReserve);
+    if (enabled) this.wake();
+  }
+
+  captureVideoAudio(append: (atFrame: number, pcm: Uint8Array) => void) {
+    const capture = { startedAt: this.context.currentTime, append };
+    this.videoAudio = capture;
+    for (const block of this.recentAudio) if (Number.isFinite(block.playAt)) this.writeVideoAudio(block);
+    return () => { if (this.videoAudio === capture) this.videoAudio = null; };
+  }
+
+  private writeVideoAudio(block: { playAt: number; left: Float32Array; right: Float32Array }) {
+    const capture = this.videoAudio;
+    if (!capture || !Number.isFinite(block.playAt)) return;
+    const pcm = new Uint8Array(block.left.length * 4);
+    const data = new DataView(pcm.buffer);
+    for (let i = 0; i < block.left.length; i++) {
+      data.setInt16(i * 4, Math.max(-32768, Math.min(32767, Math.round(block.left[i] * 32767))), true);
+      data.setInt16(i * 4 + 2, Math.max(-32768, Math.min(32767, Math.round(block.right[i] * 32767))), true);
+    }
+    try { capture.append(Math.round((block.playAt - capture.startedAt) * this.context.sampleRate), pcm); }
+    catch (error) { this.log('VIDEO_AUDIO_ERROR', { message: String(error) }); }
   }
 
   private disposeQueue() {
@@ -231,6 +264,10 @@ export class NativeSynth {
         }
         if (!this.source) this.newQueue();
         this.source!.enqueueBuffer(buffer);
+        const block = { playAt: this.started ? this.end : NaN, offset: this.prepared, left, right };
+        this.recentAudio.push(block);
+        if (this.started) this.writeVideoAudio(block);
+        this.recentAudio = this.recentAudio.filter(item => !Number.isFinite(item.playAt) || item.playAt + this.blockSeconds >= now - .5);
         this.blocks++;
 
         if (this.started) {
@@ -252,6 +289,10 @@ export class NativeSynth {
           this.output.gain.setValueAtTime(0, this.context.currentTime);
           this.source!.start(start, 0);
           this.started = true;
+          for (const item of this.recentAudio) if (!Number.isFinite(item.playAt)) {
+            item.playAt = start + item.offset;
+            this.writeVideoAudio(item);
+          }
           this.protectEnd();
           this.log("START");
         }
@@ -259,7 +300,8 @@ export class NativeSynth {
         // Foreground work yields after one block so presses can be serviced.
         // Background refill uses larger batches where timer delivery is sparse.
         batchBlocks++;
-        if (batchBlocks >= (foreground ? 1 : 4) || performance.now() - batchStart >= (foreground ? 4 : 12)) {
+        if (batchBlocks >= (foreground ? (this.videoPriority ? 3 : 1) : 4)
+          || performance.now() - batchStart >= (foreground ? (this.videoPriority ? 24 : 4) : 12)) {
           // Return completely: never leave pumping=true waiting for a UI timer.
           // Native buffer-ended/BLE events can immediately run the next batch
           // while the activity is in the background. Timers are only a fallback.

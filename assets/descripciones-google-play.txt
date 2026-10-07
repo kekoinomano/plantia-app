@@ -1,0 +1,25 @@
+SAVIASOUND — FICHA DE GOOGLE PLAY
+
+ESPAÑOL
+
+Descripción corta:
+Convierte la señal de tu planta en música con el sensor saviasound.
+
+Descripción larga:
+Escucha tu planta de una forma nueva. saviasound recibe por Bluetooth la señal captada por un sensor físico compatible y la transforma en música.
+
+Conecta el sensor, elige un ambiente sonoro y ajusta el volumen a tu gusto. Puedes observar cómo cambia la señal mientras escuchas y mantener la reproducción cuando bloqueas la pantalla.
+
+Se necesita un sensor físico saviasound compatible para utilizar la función principal. El sensor se adquiere por separado. La aplicación no requiere crear una cuenta.
+
+ENGLISH
+
+Short description:
+Turn your plant’s signal into music with the saviasound sensor.
+
+Full description:
+Hear your plant in a new way. saviasound receives the signal captured by a compatible physical sensor over Bluetooth and turns it into music.
+
+Connect the sensor, choose a musical mood, and adjust the volume to your liking. Watch the signal change as you listen, and keep the music playing when you lock your screen.
+
+A compatible saviasound physical sensor is required to use the app’s main feature. The sensor is sold separately. No account is required.

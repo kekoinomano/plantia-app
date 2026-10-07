@@ -7,7 +7,7 @@ export function Icon({
   color = colors.ink,
   muted = false,
 }: {
-  name: "leaf" | "bluetooth" | "play" | "pause" | "sliders" | "close" | "chevron" | "sound" | "info" | "back" | "refresh" | "edit" | "check" | "search" | "wave" | "keys" | "bell" | "strings" | "wind" | "menu" | "record" | "download" | "trash";
+  name: "leaf" | "bluetooth" | "play" | "pause" | "sliders" | "close" | "chevron" | "sound" | "info" | "back" | "refresh" | "edit" | "check" | "search" | "wave" | "keys" | "bell" | "strings" | "wind" | "menu" | "record" | "download" | "trash" | "camera";
   size?: number;
   color?: string;
   muted?: boolean;
@@ -33,6 +33,7 @@ export function Icon({
       {name === "wind" && <Path d="m4 20 16-16M4 14l6 6M8 10l6 6m-2-10 6 6m-2-10 6 6" />}
       {name === "menu" && <Path d="M4 7h16M4 12h16M4 17h16" />}
       {name === "record" && <Circle cx={12} cy={12} r={6} fill={color} strokeWidth={0} />}
+      {name === "camera" && <><Path d="M3 7h4l2-3h6l2 3h4v13H3Z" /><Circle cx={12} cy={13} r={4} /></>}
       {name === "download" && <Path d="M12 3v12m-5-5 5 5 5-5M4 18v3h16v-3" />}
       {name === "trash" && <Path d="M4 7h16M9 7V4h6v3m-9 0 1 14h10l1-14M10 11v6m4-6v6" />}
       {name === "leaf" && (

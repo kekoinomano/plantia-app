@@ -4,22 +4,22 @@ const { AndroidConfig, withAndroidManifest, withAppBuildGradle } = require("expo
 module.exports = (config) => {
   config = withAndroidManifest(config, (config) => {
     const application = AndroidConfig.Manifest.getMainApplicationOrThrow(config.modResults);
-    application.$["android:label"] = "${plantiaAppLabel}";
+    application.$["android:label"] = "${saviasoundAppLabel}";
     return config;
   });
   return withAppBuildGradle(config, (config) => {
-    const marker = "// Plantia: separate development installation";
+    const marker = "// saviasound: separate development installation";
     if (!config.modResults.contents.includes(marker)) {
       config.modResults.contents += `
 ${marker}
 android {
     defaultConfig {
-        manifestPlaceholders.plantiaAppLabel = "saviasound"
+        manifestPlaceholders.saviasoundAppLabel = "saviasound"
     }
     buildTypes {
         debug {
             applicationIdSuffix ".dev"
-            manifestPlaceholders.plantiaAppLabel = "saviasound Dev"
+            manifestPlaceholders.saviasoundAppLabel = "saviasound Dev"
         }
     }
 }

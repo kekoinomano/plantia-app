@@ -1,0 +1,1 @@
+{"platforms":["apple","android"],"apple":{"modules":["SaviasoundVideoModule"],"podspecPath":"SaviasoundVideo.podspec"},"android":{"modules":["expo.modules.saviasoundvideo.SaviasoundVideoModule"]}}

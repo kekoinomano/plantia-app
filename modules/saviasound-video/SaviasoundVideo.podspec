@@ -1,0 +1,16 @@
+Pod::Spec.new do |s|
+  s.name = 'SaviasoundVideo'
+  s.version = '1.0.0'
+  s.summary = 'Saviasound camera video with live signal and app audio'
+  s.license = { :type => 'MIT' }
+  s.author = 'saviasound'
+  s.homepage = 'https://expo.dev'
+  s.source = { :git => 'https://github.com/expo/expo.git' }
+  s.platforms = { :ios => '16.4' }
+  s.swift_version = '5.9'
+  s.static_framework = true
+  s.dependency 'ExpoModulesCore'
+  s.frameworks = 'AVFoundation', 'CoreGraphics', 'Photos'
+  s.source_files = 'ios/*.swift'
+  s.resources = 'ios/Resources/*.png'
+end
